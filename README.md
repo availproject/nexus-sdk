@@ -1,824 +1,368 @@
 # `@avail-project/nexus-core`
 
-Headless TypeScript SDK for API-routed cross-chain intents and EVM contract execution.
+Headless TypeScript SDK for cross-chain swaps, same-asset bridging, wallet balances, and EVM
+contract execution. Bring your own wallet connection and user interface.
 
-The Better Intent middleware owns asset discovery, route selection, provider selection, fees, and
-quotes. The SDK owns validation, wallet approvals, permit and intent signatures, required source transactions,
-intent submission, fulfillment polling, and optional destination contract execution.
-
-## Install
+## Install and connect
 
 ```bash
 npm install @avail-project/nexus-core
 ```
 
-Execution requires an EIP-1193 Ethereum provider and supports EVM wallets through viem.
-Catalog queries and exact-input quote previews work without a connected wallet.
-
-## Initialize a client
-
 ```ts
-import { createNexusClient } from '@avail-project/nexus-core';
-
-const client = createNexusClient({ clientId: 'your-app-name', network: 'mainnet' });
-
-await client.initialize();
-await client.setEVMProvider(window.ethereum);
-```
-
-`clientId` is required and must be a non-empty, stable identifier for your application.
-The SDK sends it as `x-nexus-client-id`, along with `x-nexus-surface: nexus-sdk` and
-`x-nexus-surface-version` (the SDK package version), on every intent middleware request.
-
-Create a new client after the connected account or provider changes. Call `destroy()` when the
-client is no longer used.
-
-Supported built-in network names are:
-
-- `mainnet` — Better Intent enabled against mainnet chains
-- `canary` — Better Intent enabled against mainnet chains
-- `testnet` — standalone execute support only; intent operations reject with
-  `ENVIRONMENT_NOT_SUPPORTED`
-
-A custom `NetworkConfig` can also provide middleware and explorer URLs plus a network hint.
-
-The middleware can route an intent through `nexus-v2`, `mayan`, or `relay`. It selects the provider
-per quote, and `IntentQuote.provider`, `IntentStatus.provider`, and every catalog entry name the
-provider that applies. Treat the `IntentProvider` union as open to growth: render an unknown provider
-generically rather than assuming Nexus or Mayan.
-
-Initialization caches only chain metadata from `/api/v1/intent/chains`, which also supplies
-`chainList` for standalone execution. Token metadata is fetched on demand from
-`/api/v1/intent/tokens`; `/deployment` is no longer used. Catalog discovery and
-balances include all supported providers; middleware selects the provider for each quote.
-Token selection uses chain IDs and contract addresses.
-
-## Intent lifecycle
-
-Swap methods use the middleware's `/api/v1/intent` endpoints with one server-driven lifecycle:
-
-1. The SDK resolves selected token metadata, checks directional provider support, then asks middleware for a quote.
-2. `hooks.onIntent` may review, refresh, allow, or deny it.
-3. The SDK signs quoted EIP-712 permits for sponsored approvals, or sends quoted ERC-20 approval
-   transactions when required. Wallet prompts run one at a time; each broadcast starts its receipt
-   check while the SDK proceeds to the next approval prompt.
-4. After all required approvals confirm, the SDK checks quote expiry again and the wallet signs the
-   intent with `personal_sign`.
-5. The SDK sends quoted native source transactions, if any.
-6. The SDK submits the intent and approval signatures in the middleware's `signatures[]` envelope.
-7. The SDK polls until the intent is `fulfilled`.
-
-The returned promise rejects when a user denies a required action, a quote expires, fulfillment
-times out, or a wallet/middleware operation fails. It never resolves with an incomplete intent.
-
-If no hooks are supplied, the quote is accepted automatically and allowances use their minimum
-required values.
-
-## Exact-output swap
-
-Swaps also handle same-asset cross-chain moves: select the asset's contract address on each chain.
-
-
-```ts
-const result = await client.swapWithExactOut(
-  {
-    toChainId: 8453,
-    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    toAmountRaw: 10_000_000n,
-    sources: [
-      {
-        chainId: 1,
-        tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48',
-      },
-    ],
-  },
-  {
-    hooks: {
-      onIntent({ quote, allow }) {
-        console.log(`Provider: ${quote.provider}`);
-        allow();
-      },
-    },
-  },
-);
-```
-
-Omit `sources` (or pass `[]`) to let middleware discover usable wallet balances. The SDK does not
-download token lists to enumerate candidates. Explicit chain/token selections restrict discovery:
-selected tokens are checked against the destination’s providers, and chain-only selections remain
-chain filters. If every explicit selection is incompatible, the SDK rejects with `INVALID_INPUT`
-before requesting a quote.
-
-## Exact-input swap
-
-Exact-input is explicit: every source includes its token and raw amount. All sources and the
-destination must share at least one provider. Otherwise, the SDK rejects with `INVALID_INPUT`
-before requesting a quote. A separate match for each source is insufficient.
-
-```ts
-const result = await client.swapWithExactIn({
-  sources: [
-    {
-      chainId: 1,
-      tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48',
-      amountRaw: 5_000_000n,
-    },
-    {
-      chainId: 42161,
-      tokenAddress: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-      amountRaw: 5_000_000n,
-    },
-  ],
-  toChainId: 8453,
-  toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-});
-```
-
-### Preview exact-input rates without a wallet
-
-After `initialize()`, `swapWithExactIn` can request a quote before `setEVMProvider()`.
-Read the rate from `hooks.onIntent`'s `quote.output` and the entered amounts from `quote.input`.
-The hook's `execution` field combines the operation's connection state with the latest quote's
-source-balance check:
-
-```ts
-execution:
-  | { possible: true }
-  | { possible: false; cause: 'not-connected' | 'insufficient-balance' };
-```
-
-`not-connected` takes priority over `insufficient-balance`. The SDK uses a random placeholder address
-for disconnected requests and keeps it unchanged across `refresh()` calls. Read `hook.execution`
-again after awaiting `hook.refresh()` to get eligibility for the refreshed quote. An operation
-started without a wallet keeps the `not-connected` cause; connecting requires a new swap call.
-
-For a disconnected operation, `allow()` rejects the swap promise with `WALLET_NOT_CONNECTED`
-before any wallet action or submission. `deny()` retains its normal user-denied error. Without a
-hook, the SDK emits the quote event and rejects with `WALLET_NOT_CONNECTED`. The swap promise never
-resolves with a preview result.
-
-After connecting, start a new `swapWithExactIn` call and review the new quote. Connecting during
-an existing preview does not make that operation executable. Actual balances, allowances, fees,
-and rates may differ. Exact-output and swap-and-execute operations still require a wallet.
-
-Middleware can still reject a preview when a selected token needs an unsponsored approval and
-the placeholder cannot fund its gas (`backend/insufficient_approval_gas`).
-
-In `example/browser`, the Exact In Swap tab is available before login. Add source assets from the
-searchable catalog, enter their amounts, choose a destination, and select **Preview Exact In Swap**.
-The review shows output and fees with a **Connect wallet** action. Connecting closes the preview
-and keeps the form selections; request a new quote to review it with the connected wallet.
-
-## Quote refresh
-
-`refresh()` requests a complete replacement quote. An optional `IntentSource[]` can replace the
-selected sources before approval.
-
-```ts
-hooks: {
-  async onIntent({ quote, refresh, allow }) {
-    let current = quote;
-    if (shouldChangeSources) {
-      current = await refresh([
-        { chainId: 42161, tokenAddress: arbitrumUsdc },
-      ]);
-    }
-    renderQuote(current);
-    allow();
-  },
-}
-```
-
-Once allowed, the executable quote is fixed.
-
-## Events
-
-All intent operations emit the same `IntentEvent` union:
-
-```ts
-const onEvent = (event: IntentEvent) => {
-  switch (event.type) {
-    case 'quote':
-      console.log(event.quote.plan.steps);
-      break;
-    case 'step':
-      console.log(
-        event.step.id,
-        event.step.type,
-        event.state,
-        event.committed,
-        event.errorDetails,
-      );
-      break;
-    case 'status':
-      console.log(event.intentId, event.status, event.substatus, event.legs);
-      break;
-  }
-};
-```
-
-Canonical plan step types are:
-
-- `erc20_approval`
-- `source_approval_signature`
-- `intent_signature`
-- `native_transaction`
-- `intent_submission`
-- `intent_fulfillment`
-
-Step states are `started`, `completed`, or `failed`. Lifecycle statuses are `created`, `deposited`,
-`fulfilled`, and `expired`. Status events also expose one normalized leg per source, including its
-`sourceIndex`, lifecycle status, transaction links, and provider error when available. Callback
-failures are isolated and do not break the operation.
-
-Step events include `committed`, which follows the intent commitment boundary: an ERC-20 intent is
-committed after its intent signature succeeds, while a native-token source is committed when the
-wallet submits its deposit transaction. Failed steps expose a structured `errorDetails` object with
-the SDK category, code, service, step context, and middleware details when available. The legacy
-`error` message remains available for backwards compatibility.
-
-## Results and quotes
-
-`IntentResult` contains:
-
-```ts
-type IntentResult = {
-  attemptId?: string;
-  intentId: `0x${string}`;
-  intentExplorerUrl: string;
-  quote: IntentQuote;
-  status: IntentStatusResponse;
-  approvals: IntentTransaction[];
-  nativeTransactions: IntentTransaction[];
-};
-```
-
-`status.legs` contains the final per-source status snapshot returned by the middleware. This lets an
-app distinguish an overall intent stage from the progress or failure of an individual source leg.
-
-`IntentQuote` exposes normalized inputs, output, minimum output, fees, allowances, expiry, provider,
-trade type, and the canonical execution plan. Raw token amounts use `*Raw: bigint`; the middleware's
-corresponding USD valuations use `*Usd: string` so applications can display the quoted value without
-performing a second token-price lookup. Raw RFF payloads, signing payload internals, ABIs, and submit
-serialization stay private to the transport layer.
-
-`quote.isExecutable` reports the middleware's quote-time source-balance check. It does not imply
-a connected wallet or completed approvals. `quote.executionWarnings` contains `code`, `message`,
-and `shortfalls` with `chainId`, `tokenAddress`, `requiredRaw`, and `actualRaw`. A connected operation
-that accepts a non-executable quote rejects before wallet actions, using
-`backend/insufficient_balance` for an `INSUFFICIENT_BALANCE` warning. Refresh after funding to obtain
-an executable quote. Middleware must return both `isExecutable` and `executionWarnings`;
-missing or malformed fields fail response validation.
-
-`SwapResult` is an alias of `IntentResult`.
-
-SDK swap calls expose `attemptId` in `hooks.onIntent` and the returned result. It identifies one
-payment attempt across quote refreshes, source legs, submission, and delivery. A new swap call
-gets a new ID. The SDK sends it as `x-nexus-attempt-id` on associated middleware requests.
-Use it alongside `intentId` when investigating an operation.
-
-## Balances and catalog
-
-Use `getBalances()` for a connected wallet's holdings. It requires `setEVMProvider()` and
-returns normalized `IntentBalance[]` from Better Intent:
-
-```ts
-const balances = await client.getBalances();
-```
-
-`getBalancesForSwap()` is a deprecated alias of `getBalances()` with identical behavior and results.
-
-Each `IntentBalance` includes chain/token identity, raw balance, decimals, optional USD value,
-provider support, price source, and `usable` and `verified` flags. Balances can include both verified
-and unverified holdings; there is no verification filter on the balance request.
-
-Catalog helpers discover supported assets independently of wallet holdings. Initialize once, then
-load a token page when the user opens a picker or changes its filters. Initialization fetches chain
-metadata only; it does not download every chain's tokens.
-
-### Choose a catalog helper
-
-| You need to… | Method | Result |
-| --- | --- | --- |
-| List cached chains and their capabilities | `getSupportedChains()` | `IntentChainMetadata[]` (synchronous) |
-| Search tokens across chains | `await getTokens(query?)` | `{ tokens, offset, limit, total }` |
-| Search tokens on one chain | `await getTokensByChain(chainId, query?)` | `{ tokens, offset, limit, total }` |
-| Resolve an exact chain/address selection | `await getToken({ chainId, tokenAddress })` | `IntentToken` |
-| Offer sources for a selected destination | `await getAvailableSourceTokens(destination, selectedSources?, query?)` | `{ groups, offset, limit, total }` |
-| Offer destinations for selected sources | `await getAvailableDestinationTokens(sources, query?)` | `{ chains, offset, limit, total }` |
-| Check whether all selections share a provider | `await confirmRouteExists(sources, destination)` | `boolean` |
-| Ask middleware for chains under route/amount constraints | `await getSupportedChainsForRoute(constraints)` | `IntentChainMetadata[]` |
-
-The examples below share this setup. Catalog calls need initialization but no wallet; the async
-helpers work on `mainnet` and `canary` and reject on `testnet`.
-
-```ts
-import {
-  createNexusClient,
-  type IntentTokenQuery,
-  type TokenRef,
-} from '@avail-project/nexus-core';
-import { parseUnits } from '@avail-project/nexus-core/utils';
+import { createNexusClient, type EthereumProvider } from '@avail-project/nexus-core';
+import { formatUnits, parseUnits } from '@avail-project/nexus-core/utils';
 
 const client = createNexusClient({ clientId: 'your-app-name', network: 'mainnet' });
 await client.initialize();
+
+// Use the EIP-1193 provider supplied by your wallet connector.
+declare const provider: EthereumProvider;
+await client.setEVMProvider(provider);
 ```
 
-### List chains
+`clientId` is a required, non-empty, stable application identifier. Catalog queries and exact-input
+quote previews need initialization but no wallet. Execution and wallet balances need a connected
+provider. Recreate the client after account/provider changes and call `client.destroy()` on cleanup.
+
+`mainnet` and `canary` use mainnet chains. `testnet` supports standalone execution only; intent
+operations and async intent catalog helpers reject with `ENVIRONMENT_NOT_SUPPORTED`.
+
+## Choose an operation
+
+| Need | Method |
+| --- | --- |
+| Receive a specified destination amount | `swapWithExactOut` |
+| Spend specified source amounts | `swapWithExactIn` |
+| Bridge the same asset across chains | Either swap method, with that asset's address on each chain |
+| Fund a destination contract call, then execute it | `swapAndExecute` |
+| Execute using funds already on the destination | `execute` |
+| Estimate a standalone contract call | `simulateExecute` |
+
+Amounts are raw `bigint` values. Resolve tokens by chain ID and contract address, then use their own
+decimals with `parseUnits` / `formatUnits`. Native-token addresses come from catalog metadata.
+Routes, providers, and fees are determined by the quote.
+
+## Discover assets and balances
 
 ```ts
 const chains = client.getSupportedChains();
 const swapChains = chains.filter((chain) => chain.capabilities.intent);
 const executeChains = chains.filter((chain) => chain.capabilities.execute);
-```
 
-`getSupportedChains()` returns cached `IntentChainMetadata[]` without token lists. Each chain
-includes intent/execute capabilities and directional provider support. Chains with RPC and
-multicall metadata support execution. Optional vault, sponsorship, and EIP-7702 metadata is retained.
-For a swap picker, use chains with `capabilities.intent`; some chains support only execution.
-Standalone execute resolves approval tokens by chain and contract address when needed;
-`chainList.chains[*].custom.knownTokens` is populated on demand and is not a complete token catalog.
-
-The standalone utility and `client.utils.getSupportedChains(network)` also return chain metadata
-without tokens. They fetch `/chains`; the client method uses its initialization cache:
-
-```ts
-import { getSupportedChains as fetchSupportedChains } from '@avail-project/nexus-core/utils';
-
-const remoteChains = await fetchSupportedChains('mainnet', { clientId: 'your-app-name' });
-// Or reuse the client identity: await client.utils.getSupportedChains('mainnet');
-```
-
-The standalone utility requires `clientId`; `client.utils` uses the ID configured on that client.
-Chain and token `asSource`/`asDestination` arrays describe general provider support. Shared support
-does not guarantee a quote: middleware still checks currencies, amounts, balances, fees, and availability.
-
-### Search tokens and load the next page
-
-`getTokens` and `getTokensByChain` return one `IntentTokenPage` at a time. Use them for general
-asset discovery; use the compatibility helpers below when the other side of a swap is selected.
-
-```ts
-const query: IntentTokenQuery = { symbol: 'USDC', limit: 25 };
-let page = await client.getTokensByChain(10, { ...query, offset: 0 });
-
-for (const token of page.tokens) {
-  console.log(token.chainId, token.address, token.symbol, token.decimals);
-}
-
-// In the Next / Load more handler, keep the same chain and filters.
-if (page.offset + page.limit < page.total) {
-  page = await client.getTokensByChain(10, {
-    ...query,
-    offset: page.offset + page.limit,
-    limit: page.limit,
-  });
-}
-
-// For an all-chain search, omit chainId and use getTokens instead.
-const allChainPage = await client.getTokens({ symbol: 'USDC', limit: 25 });
-
-// Token lists default to verified tokens. Opt in to include unverified entries too.
-const inclusivePage = await client.getTokens({ chainId: 8453, includeUnverified: true });
-for (const token of inclusivePage.tokens) {
-  console.log(token.address, token.verified);
-}
-```
-
-All token-page helpers accept these `IntentTokenQuery` filters:
-
-| Field | Meaning |
-| --- | --- |
-| `chainId` | Restrict candidates to one chain. With `getTokensByChain`, pass the chain as the first argument instead. |
-| `providers` | Match any listed provider, for example `['nexus-v2', 'mayan']`. Omit it to include all providers. |
-| `includeUnverified` | Include unverified tokens alongside verified tokens; defaults to `false`. Maps to the middleware's `unverified` query parameter. |
-| `name` | Case-insensitive token-name substring, for example `'USD Coin'`. |
-| `symbol` | Case-insensitive symbol substring, for example `'USDC'`. |
-| `contract` | Case-insensitive contract-address substring. Use `getToken` for exact identity. |
-| `offset` | Number of API candidates to skip; defaults to `0`. |
-| `limit` | Page size from `1` to `1000`; defaults to `50`. |
-
-Different filters combine with AND. Setting both `name` and `symbol` searches for tokens matching
-both; it does not search either field. When a search or filter changes, reset `offset` to `0`.
-Debounce text searches and ignore stale responses if a newer query has already been issued.
-
-Every `IntentToken` includes `verified: boolean`, which is true if at least one selected provider
-marks the token as verified. The same `includeUnverified` option works with `getTokensByChain`,
-`getAvailableSourceTokens`, and `getAvailableDestinationTokens`.
-
-Repeated queries and concurrent identical requests share a bounded per-client cache (100 pages,
-1000 token metadata entries). Failed requests can be retried. Reinitializing replaces the cache.
-
-### Resolve a selected token
-
-Selections use `TokenRef`: `{ chainId, tokenAddress }`. A returned `IntentToken` uses `address`,
-so copy `token.address` into `tokenAddress` when a user selects a search result. Keep selections
-independently of the currently displayed page, using chain ID plus address as their identity.
-
-```ts
+const page = await client.getTokensByChain(8453, { symbol: 'USDC', limit: 25 });
 const baseUsdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-const optimismUsdc = '0x0b2c639c533813f4aa9d7837caf62653d097ff85';
+const destination = { chainId: 8453, tokenAddress: baseUsdc } as const;
+const token = await client.getToken(destination);
+const amountRaw = parseUnits('10', token.decimals);
 
-const destination: TokenRef = { chainId: 8453, tokenAddress: baseUsdc };
-const destinationToken = await client.getToken(destination);
-const destinationAmountRaw = parseUnits('10', destinationToken.decimals);
-
-// Convert a search-result selection into the reference accepted by other helpers.
-const firstToken = page.tokens[0];
-if (firstToken) {
-  const selection: TokenRef = {
-    chainId: firstToken.chainId,
-    tokenAddress: firstToken.address,
-  };
-  console.log(selection);
+const balances = await client.getBalances();
+for (const balance of balances) {
+  console.log(balance.symbol, formatUnits(balance.balanceRaw, balance.decimals), balance.usable);
 }
 ```
 
-`getToken` resolves an explicitly named token whether verified or unverified, without downloading
-the entire chain's catalog. Its returned `verified` flag identifies the token's status. Token addresses
-and decimals are chain-specific; never infer decimals from a symbol. Public swap inputs take raw
-`bigint` amounts such as `destinationAmountRaw`. `convertTokenReadableAmountToBigInt` has been removed.
+| Catalog method | Returns |
+| --- | --- |
+| `getSupportedChains()` | Cached chain metadata, without token lists |
+| `getTokens(query?)` | Token page across chains |
+| `getTokensByChain(chainId, query?)` | Token page on one chain |
+| `getToken({ chainId, tokenAddress })` | Exact token metadata |
+| `getAvailableSourceTokens(destination, selectedSources?, query?)` | Page of provider groups containing chains and tokens |
+| `getAvailableDestinationTokens(sources, query?)` | Page of chains containing destination tokens |
+| `confirmRouteExists(sources, destination)` | Catalog compatibility as a boolean |
+| `getSupportedChainsForRoute(constraints)` | Chain metadata matching route constraints |
 
-### Build source and destination pickers
+Token queries accept `chainId`, `providers`, `name`, `symbol`, `contract`, `includeUnverified`,
+`offset`, and `limit`. Filters combine with AND. Pages default to offset 0 and limit 50; the maximum
+limit is 1000. Token pages default to verified assets; opt in with `includeUnverified: true`.
+Exact lookup can resolve unverified tokens. Balances include both; respect `verified` and `usable`.
 
-For a destination-first picker, call `getAvailableSourceTokens`. Pass `[]` as the second argument
-for the first source choice; pass existing source selections to narrow additional choices.
-The third argument filters the candidate sources, not the selected destination.
+Advance pagination by `page.offset + page.limit` while that is less than `page.total`. Compatibility
+pages count candidates before filtering, so an empty page does not mean there are no later matches.
+Reset the offset when filters or selections change. Keep selections outside the displayed page;
+returned tokens use `address`, while selections use `tokenAddress`. Deduplicate provider groups
+by chain ID plus address.
+
+For exact-input pickers, pass existing sources to `getAvailableSourceTokens` so all selections
+share one provider. Exact-output sources are alternatives: use
+`getAvailableSourceTokens(destination, [], query)`. `confirmRouteExists` requires a provider shared
+by all sources and does not guarantee a quote. Lookup failures reject separately from empty pages.
+
+Route constraints accept `sources`, `destinations`, `providers`, and `valueUsd`. Legs accept
+`chainId?`, `tokenAddress?`, and `amountRaw?`; amounts require both identity fields. Use the same
+fields on each leg of one side, and at most one sizing mode: source amounts, destination amounts,
+or USD value. Amounts must be non-negative. Token queries do not inherit route constraints.
+
+## Swap
+
+Exact output specifies what to receive. Omit `sources` (or pass `[]`) for automatic wallet funding;
+explicit sources restrict eligible chains and tokens. `toNativeAmountRaw` optionally requests
+destination native funds for gas.
 
 ```ts
-const selectedSources: TokenRef[] = [{ chainId: 10, tokenAddress: optimismUsdc }];
-const sourceQuery: IntentTokenQuery = { symbol: 'USDC', limit: 25 };
+const result = await client.swapWithExactOut({
+  toChainId: destination.chainId,
+  toTokenAddress: destination.tokenAddress,
+  toAmountRaw: amountRaw,
+  sources: [{ chainId: 1, tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48' }],
+});
+console.log(result.intentId, result.intentExplorerUrl);
+```
 
-let sourcePage = await client.getAvailableSourceTokens(destination, selectedSources, sourceQuery);
+Exact input specifies every source's positive raw amount. All sources and the destination must
+share one provider.
 
-for (const group of sourcePage.groups) {
-  for (const chain of group.chains) {
-    for (const token of chain.tokens) {
-      console.log(group.provider, chain.id, token.address, token.symbol);
-    }
+```ts
+const source = {
+  chainId: 1,
+  tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48',
+} as const;
+const sourceToken = await client.getToken(source);
+await client.swapWithExactIn({
+  sources: [{ ...source, amountRaw: parseUnits('5', sourceToken.decimals) }],
+  toChainId: destination.chainId,
+  toTokenAddress: destination.tokenAddress,
+});
+```
+
+## Review quotes and preview rates
+
+Pass `options.hooks.onIntent` to display a confirmation UI. The operation waits for `allow()` or
+`deny()`; returning from the callback alone does not accept it. Without a hook, quotes are accepted
+automatically. ERC-20 approvals use the minimum required amount; wallets may also prompt for
+approval signatures and source transactions.
+
+```ts
+import type { IntentHookData, SwapOperationOptions } from '@avail-project/nexus-core';
+
+declare function showReview(hook: IntentHookData): void;
+const options: SwapOperationOptions = {
+  hooks: { onIntent: showReview },
+  slippageBps: 50,
+  fillTimeoutMinutes: 2,
+  pollingIntervalMs: 2000,
+};
+```
+
+Pass `options` as the second argument to either swap method. These are the default option values.
+Slippage accepts an integer from 0 to 10000 or `'auto'`. The review UI uses `hook.quote`,
+`hook.execution`, `hook.allow()`, `hook.deny()`, and `await hook.refresh(sources?)`.
+Refresh returns a complete replacement quote; render that return value and read `hook.execution`
+again. Await refresh before allowing. Exact-input replacement sources must still carry token
+addresses and raw amounts. The quote is fixed after acceptance.
+
+Quotes expose `input`, `output`, `output.minAmountRaw`, `fees`, `allowances`, `plan`,
+`sourceVerdicts`, and `expiresAt` (Unix seconds). Amounts ending in `Raw` are `bigint`;
+USD quote amounts are decimal strings. `quote.isExecutable` is a source-balance check;
+`quote.executionWarnings` describes any shortfalls.
+
+`swapWithExactIn` can preview rates before wallet connection. Its hook exposes:
+
+```ts
+type QuoteExecution =
+  | { possible: true }
+  | { possible: false; cause: 'not-connected' | 'insufficient-balance' };
+```
+
+A preview remains disconnected throughout that operation. After connecting, start a new swap call
+and review its fresh quote. `allow()` on a disconnected preview rejects with `WALLET_NOT_CONNECTED`;
+`deny()` rejects as a user denial. There is no successful preview result. Without a hook, the quote
+event is emitted and the call rejects. Preview quotes can also fail if source approval gas is missing.
+Connected quotes with insufficient balances cannot execute; fund the wallet and refresh.
+Exact-output and composite operations require a wallet.
+
+## Progress and results
+
+`options.onEvent` receives `IntentEvent`:
+
+- `quote`: the current quote and plan.
+- `step`: `step`, `state` (`started`, `completed`, or `failed`), `committed`, and optional
+  `errorDetails`.
+- `status`: `intentId`, `status` (`created`, `deposited`, `fulfilled`, or `expired`),
+  `substatus`, and per-source `legs` with transaction links and errors.
+
+```ts
+import type { IntentEvent } from '@avail-project/nexus-core';
+
+const onEvent = (event: IntentEvent): void => {
+  switch (event.type) {
+    case 'quote':
+      console.log('Quote updated', event.quote.output, event.quote.fees, event.quote.plan.steps);
+      break;
+    case 'step':
+      console.log('Step progress', event.step.type, event.state);
+      if (event.state === 'failed') {
+        console.error(event.errorDetails?.message, event.errorDetails?.code);
+        // A committed attempt may still settle; check its status before retrying.
+        console.log('Intent committed', event.committed);
+      }
+      break;
+    case 'status':
+      console.log('Intent status', event.intentId, event.status, event.substatus);
+      for (const leg of event.legs) {
+        console.log('Source progress', leg.sourceIndex, leg.status, leg.txExplorerUrl, leg.error);
+      }
+      break;
   }
-}
+};
+
+const swapOptions: SwapOperationOptions = { ...options, onEvent };
 ```
 
-`groups` is `ProviderTokenGroup[]`: each entry has a `provider` and `chains`, each containing
-matching `tokens` from this page. A token may appear under several providers. If your UI displays a
-flat list, deduplicate by chain ID and address. Provider groups are display metadata and do not
-pin the provider used by a later quote.
+Pass `swapOptions` as the second argument to either swap method. Replace the logging with your
+application's progress UI; the error example below uses these same options.
 
-For a source-first picker, call `getAvailableDestinationTokens`. Its query filters destination
-candidates. Pass `[]` for sources to browse all destination-capable candidates before selecting sources.
+Plan step types are `erc20_approval`, `source_approval_signature`, `intent_signature`,
+`native_transaction`, `intent_submission`, and `intent_fulfillment`. Event callback failures
+do not interrupt the operation. Use `errorDetails` instead of the deprecated step `error` string.
 
-```ts
-const destinationPage = await client.getAvailableDestinationTokens(selectedSources, {
-  chainId: 8453,
-  symbol: 'USDC',
-  limit: 25,
-});
+Swap promises resolve after fulfillment with `IntentResult`: `intentId`, `intentExplorerUrl`,
+`quote`, `status`, `approvals`, `nativeTransactions`, and optional `attemptId`. Track `attemptId`
+alongside `intentId` for support. A rejected promise may follow already-submitted transactions.
 
-for (const chain of destinationPage.chains) {
-  for (const token of chain.tokens) {
-    console.log(chain.id, token.address, token.symbol);
-  }
-}
-```
-
-Both helpers require provider support in the correct direction at the chain and token level.
-Additional source choices must share a provider with the destination and every selected source.
-Destination choices must share one provider with all selected sources.
-Each call loads one candidate page and may also fetch uncached metadata for selected tokens.
-
-**Compatibility-page pagination describes API candidates before local directional filtering.**
-`total` is the candidate count, not the number of displayed compatible tokens. A page can have no
-groups or tokens even when later pages contain matches. Use the page's offset and limit to advance:
+## Execute a contract call
 
 ```ts
-// In the source picker's Load more handler, even if sourcePage.groups is empty:
-const nextOffset = sourcePage.offset + sourcePage.limit;
-if (nextOffset < sourcePage.total) {
-  sourcePage = await client.getAvailableSourceTokens(destination, selectedSources, {
-    ...sourceQuery,
-    offset: nextOffset,
-    limit: sourcePage.limit,
-  });
-}
-```
+import type { ExecuteParams } from '@avail-project/nexus-core';
 
-The same rule applies to destination pages. Reset pagination and reload when either selection or
-any filter changes. Fetch subsequent pages as needed instead of collecting the entire catalog up front.
-
-### Check a selection before requesting a swap
-
-```ts
-const compatible = await client.confirmRouteExists(selectedSources, destination);
-console.log(compatible); // Whether one provider supports every source and the destination.
-```
-
-`confirmRouteExists` resolves only selected tokens and returns `false` for empty sources, unknown
-chain/token pairs, or no common provider. Network failures still reject. `true` indicates catalog
-compatibility; the quote still checks amounts, balances, fees, and current provider availability.
-Other lookup helpers reject unknown inputs with `validation/chain_not_found` or
-`validation/token_not_supported`. Handle rejected promises separately from an empty page or a
-`false` compatibility result so an API outage does not appear as an unsupported asset.
-
-The common-provider rule matches exact-input selection, where all sources participate. Exact-output
-sources are alternatives: each candidate only needs individual compatibility with the destination.
-For that picker, call `getAvailableSourceTokens(destination, [], query)` without passing already
-selected alternatives. Do not reject an exact-output selection solely because all alternatives
-together return `false` from `confirmRouteExists`. With omitted sources, let middleware discover
-wallet funding directly; no token enumeration or compatibility check is needed first.
-
-### Route-constrained catalog
-
-Use `getSupportedChainsForRoute` when the chain picker needs middleware's support for a particular
-source, destination, or amount. It forwards constraints to `/chains` and returns chain metadata
-without token lists. Read `asSource` or `asDestination` for the side you are choosing.
-
-```ts
-const constrainedChains = await client.getSupportedChainsForRoute({
-  sources: [{ chainId: 10, tokenAddress: optimismUsdc }],
-  valueUsd: 25,
-});
-const destinationOptions = constrainedChains.filter((chain) => (chain.asDestination?.length ?? 0) > 0);
-
-// Alternatively, constrain the destination using its raw token amount.
-const chainsForOutput = await client.getSupportedChainsForRoute({
-  destinations: [{ ...destination, amountRaw: destinationAmountRaw }],
-});
-const sourceOptions = chainsForOutput.filter((chain) => (chain.asSource?.length ?? 0) > 0);
-```
-
-`IntentRouteConstraints` accepts `sources`, `destinations`, `providers`, and `valueUsd`. Each leg
-needs a chain ID or token address; an `amountRaw` additionally requires both. When supplying multiple
-legs on one side, supply the same fields on every leg. Amounts must be non-negative raw `bigint`s.
-Sizing is optional; use at most one mode per request: source amounts, destination amounts, or a
-non-negative finite `valueUsd`.
-
-Route constraints apply to this chain response. Subsequent token-page helpers take their own query
-filters; they do not inherit these constraints, and `/tokens` does not accept route amounts.
-Only the quote establishes execution feasibility. Quote results expose `sourceVerdicts`;
-`getIntentQuoteFailure(error)` exposes structured balance, approval-gas, price, and routing failures
-through `subcode`, `details`, and `errorId` without parsing display messages.
-
-Catalog types (`IntentTokenQuery`, `IntentTokenPage`, `IntentSourceTokenPage`,
-`IntentDestinationTokenPage`, `IntentChainMetadata`, `IntentRouteConstraints`, `TokenRef`, and
-`ProviderTokenGroup`) are exported from the package root.
-
-Tokens expose optional `permit` and `sponsoredApproval` metadata for discovery. The quote determines
-which approvals actually need permits. `IntentAllowance.authorizationType` and plan steps describe
-the required action; `IntentResult.approvals` contains only approval transactions submitted by the
-user. A denied permit signature stops execution.
-
-Provider `currencyId` values may be numbers or strings. Balance `priceSource` values include
-`oracle`, `indexer`, `coingecko`, `relay`, or `null`. Quote fees expose `depositRaw`, `fulfillmentRaw`,
-`protocolRaw`, and `solverRaw`; the removed middleware `caGas` fee is no longer exposed as `caGasRaw`.
-
-## Execute
-
-Standalone execute remains local wallet/contract execution:
-
-```ts
-const result = await client.execute({
-  toChainId: 8453,
+declare const contract: ExecuteParams['to'];
+declare const calldata: ExecuteParams['data'];
+const executeParams: ExecuteParams = {
+  toChainId: destination.chainId,
   to: contract,
-  data,
+  data: calldata,
   value: 0n,
   tokenApproval: {
-    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    amount: 10_000_000n,
+    toTokenAddress: destination.tokenAddress,
+    amount: amountRaw,
     spender: contract,
   },
-});
-
-const simulation = await client.simulateExecute({
-  toChainId: 8453,
-  to: contract,
-  data,
-  tokenApproval: {
-    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    amount: 10_000_000n,
-    spender: contract,
-  },
-});
+};
+const estimate = await client.simulateExecute(executeParams);
+const executed = await client.execute(executeParams);
+console.log(estimate.estimatedGasUnits, executed.execute.txExplorerUrl);
 ```
 
-Both methods use `tokenApproval.toTokenAddress` to identify the ERC-20 contract on `toChainId`.
-Approval token metadata is fetched on demand by exact address and cached, regardless of its intent
-provider. Symbols are display metadata. Omit `tokenApproval` when no ERC-20 approval is needed;
-send native tokens through `value`. Simulation includes approval gas when the current allowance is
-insufficient. Public inputs and on-chain calls use raw `bigint` units.
+Omit `tokenApproval` when none is required; native-token transfers use `value`. Simulation requires
+a wallet and estimates approval gas when needed. Execution returns `execute`, optional `approval`,
+and `chainId`. By default it waits for a receipt; `waitForReceipt: false` returns after broadcast.
+Receipt controls are `receiptTimeout` (milliseconds, default 300000) and `requiredConfirmations`
+(default 1). A submitted transaction can still fail after a broadcast-only result.
 
-## Intent plus execute
-
-`swapAndExecute` requires a positive `execute.gas` raw estimate for the destination call. It never
-estimates that call through RPC before funding, when balances or approvals may be missing. The
-SDK adds chain-specific gas/fee buffers and L1 fees, calculates the destination shortfall, requests
-funding through Better Intent, waits for fulfillment, then executes. If an ERC-20 approval is
-needed, its gas is estimated separately, falling back to 70,000 raw gas units if estimation fails.
+## Fund and execute
 
 ```ts
-const result = await client.swapAndExecute(
+const composed = await client.swapAndExecute(
   {
-    toChainId: 8453,
-    toTokenAddress: baseUsdc,
-    toAmountRaw: 10_000_000n,
+    toChainId: destination.chainId,
+    toTokenAddress: destination.tokenAddress,
+    toAmountRaw: amountRaw,
     execute: {
-      to: lendingPool,
-      data: supplyCalldata,
-      gas: 350_000n, // Raw estimate; the SDK adds the destination chain's buffers.
-      tokenApproval: {
-        toTokenAddress: baseUsdc,
-        amount: 10_000_000n,
-        spender: lendingPool,
-      },
+      to: contract,
+      data: calldata,
+      gas: 350_000n,
+      tokenApproval: executeParams.tokenApproval,
     },
   },
   {
     hooks: {
-      onIntent: ({ intent, allow }) => {
+      onIntent({ intent, allow }) {
         console.log(intent.executeRequirement, intent.available, intent.shortfall);
-        allow(); // Call after your application's review step.
+        allow(); // In an app, call after the user confirms.
       },
     },
-    beforeExecute: async () => ({ data: refreshedCalldata }),
   },
 );
+console.log(composed.swapSkipped, composed.execute.txExplorerUrl);
+if (!composed.swapSkipped) console.log(composed.swapResult.intentExplorerUrl);
 ```
 
-The result indicates whether funding was skipped and includes the final execute transaction.
+Supply a positive `execute.gas` estimate appropriate to your contract call. The SDK accounts for
+execution gas and value, funds the destination shortfall, then executes after fulfillment.
+The composite hook receives `intent`, not `quote`; it runs even if funding is already sufficient.
+`intent.quote` exists only when `intent.swapRequired` is true.
 
-The composite hook receives `SwapAndExecuteHookData`: `{ intent, allow, deny, refresh, attemptId }`.
-Its `intent` contains execution requirements, available destination balances, token/native
-shortfalls, and `swapRequired`. Amounts include raw `bigint` units, readable strings, and optional
-`valueUsd` valuations. `intent.quote` is present only when `swapRequired` is true. The hook also
-runs when funding is already covered and waits for `allow()` before execution.
+Composite `refresh(sources?)` returns an updated intent with current fee estimates and a replacement
+funding quote when needed. It reuses the original balance snapshot; start a new operation to reread
+balances. Omitted sources retain the selection; `[]` clears it. Top-level `beforeExecute` can return
+`{ data?, value?, gas? }` after funding, but overrides do not recalculate funding.
+Intent events cover funding; the composite promise covers the subsequent contract call too.
 
-`await refresh(sources?)` returns an updated composite intent. It refreshes fee prices and L1 fees,
-recalculates shortfalls, and obtains a replacement quote if funding is needed. It reuses the
-original balance snapshot, calls, allowance decision, and raw gas estimates. Source restrictions
-apply to that snapshot and the quote request; omitted sources retain the last successful selection,
-while `[]` clears it. A failed refresh leaves the prior preview and execution fees intact.
-Queued refreshes finish before `allow()` proceeds. Destination balances are not reserved in
-middleware. `beforeExecute` runs after funding; its calldata, value, or gas overrides do not trigger
-another funding calculation.
-
-## History
+## History and errors
 
 ```ts
-const history = await client.listIntents({
-  page: 1,
-  status: 'fulfilled',
-});
+const history = await client.listIntents({ page: 1, status: 'fulfilled' });
+console.log(history.intents, history.total);
 ```
 
-History merges Nexus and external-provider Better Intent records, newest first.
-
-## Options
-
-Intent operation options support:
-
-```ts
-type IntentOperationOptions = {
-  onEvent?: (event: IntentEvent) => void;
-  hooks?: {
-    onIntent?: (data: IntentHookData) => void | Promise<void>;
-  };
-  slippageBps?: number | 'auto'; // default: 50
-  fillTimeoutMinutes?: number;   // default: 2
-  pollingIntervalMs?: number;    // default: 2000
-};
-```
-
-Swap operations expose `onIntent` and use minimum required ERC-20 approvals. `swapAndExecute`
-uses `SwapAndExecuteHookData` for its hook and adds `beforeExecute`.
-
-## Errors
-
-All SDK errors extend `NexusError` and expose:
-
-- `category`
-- `code`
-- `context`
-- optional `details`
-
-Use subclasses such as `ValidationError`, `UserActionError`, `ExecutionError`, and `BackendError`
-for broad handling, and stable `ERROR_CODES` for specific cases.
-
-Better Intent HTTP failures remain `BackendError`s with `context.service === 'middleware'`.
-Their `message` is ready to display, and `code` identifies the failure without parsing text:
-
-| Condition | SDK code |
-| --- | --- |
-| Insufficient source balance | `backend/insufficient_balance` |
-| Not enough gas for an approval | `backend/insufficient_approval_gas` |
-| No route from the selected sources | `backend/no_routable_source` |
-| Providers cannot fulfill the swap | `backend/intent_refused` |
-| Providers temporarily unavailable | `backend/provider_unavailable` |
-| Quote failed price checks | `backend/quote_price_outlier` |
-| Request expired | `backend/request_expired` |
-| Approval missing or insufficient | `backend/insufficient_allowance` |
-| Invalid or stale approval signature | `backend/invalid_permit_signature` |
-| Too many requests | `backend/rate_limited` |
-| Service timeout / connection failure | `backend/upstream_timeout` / `backend/network_error` |
-
-For example, `ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS` carries:
-“Not enough gas to approve a source token. Add gas funds on the source chain or choose another source.”
-The [complete middleware mapping](docs/ERRORS.md#middleware-error-mapping) includes validation,
-catalog, provider, and submission errors. These specific codes replace `backend/error` for recognized
-middleware failures. Existing `NexusError`s raised by SDK validation or response parsing retain their codes.
-
-Original diagnostics remain in `details.error`, `middlewareCode`, `middlewareSubcode`, `errorId`,
-`middlewareDetails`, and `httpStatus`. `getIntentQuoteFailure(error)` still exposes structured quote
-diagnostics. Unrecognized middleware codes retain a nonempty server message and an operation-specific
-fallback code; missing or malformed responses use readable HTTP, network, or operation fallbacks.
-The SDK does not automatically retry submissions after a timeout; check the intent status first.
-
-If an approval fails or a later approval prompt is rejected, the SDK finishes receipt checks for
-all approvals already broadcast before rejecting. `error.details.approvals` lists their `chainId`,
-`tokenAddress`, `spender`, `txHash`, `txExplorerUrl`, and `state` (`confirmed`, `reverted`, or
-`unconfirmed`). An RPC failure or timeout leaves a transaction `unconfirmed`; it may still confirm.
-The SDK checks the known hash again if receipt waiting fails, but does not automatically resend
-transactions or reopen rejected prompts. Check unconfirmed hashes before retrying. Start a new swap
-with a fresh quote to account for allowances that already confirmed.
+All SDK errors extend `NexusError` and carry `category`, `code`, `context`, and optional `details`.
+Use `UserActionError` for denials and `ERROR_CODES` for specific recovery actions.
+`getIntentQuoteFailure(error)` extracts structured routing, balance, approval-gas, and price
+diagnostics. Handle codes rather than parsing message text. See the [error reference](docs/ERRORS.md).
 
 ```ts
+import {
+  ERROR_CODES,
+  NexusError,
+  UserActionError,
+  getIntentQuoteFailure,
+} from '@avail-project/nexus-core';
+
 try {
-  await client.swapWithExactOut(params);
+  const swap = await client.swapWithExactOut(
+    {
+      toChainId: destination.chainId,
+      toTokenAddress: destination.tokenAddress,
+      toAmountRaw: amountRaw,
+    },
+    swapOptions,
+  );
+  console.log('Fulfilled', swap.intentExplorerUrl);
 } catch (error) {
   if (error instanceof UserActionError) {
-    // Quote, approval, signature, or transaction was denied.
+    console.info('Action declined', error.code);
+  } else if (error instanceof NexusError) {
+    switch (error.code) {
+      case ERROR_CODES.WALLET_NOT_CONNECTED:
+        console.info('Connect a wallet, then request a fresh quote.');
+        break;
+      case ERROR_CODES.BACKEND_INSUFFICIENT_BALANCE:
+        console.info('Fund the wallet or choose different source assets.');
+        break;
+      case ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS:
+        console.info('Add native gas funds on the source chain or choose another source.');
+        break;
+      default:
+        console.error(error.message, error.code, error.context);
+    }
+
+    const failure = getIntentQuoteFailure(error);
+    if (failure) console.log('Quote diagnostics', failure.subcode, failure.sourceVerdicts);
+    if (error.details?.approvals) console.log('Broadcast approvals', error.details.approvals);
+  } else {
+    throw error;
   }
 }
 ```
 
-## Error reporting
+Use the messages to update your UI and retain the error code/context for support. Event handlers
+show progress; the operation's promise must still be caught to handle the final failure.
 
-Telemetry records the shared error bucket in `error.code`, the SDK error code in `error.type`,
-and the SDK category in `error.category`. Public error objects retain their codes and messages.
-`BACKEND_INTENT_REFUSED` maps to `quote_unavailable`.
+After a timeout or connection failure following commitment, check history, the explorer, and known
+transaction hashes before retrying. The intent may still fulfill. Approval failures can expose
+`error.details.approvals` with `confirmed`, `reverted`, or `unconfirmed` states. An unconfirmed
+transaction may still confirm; use a fresh quote when starting another operation.
 
-Telemetry and `client.analytics.getBaseProperties()` identify the network with `nexus.network`.
-Attempt records use `attempt.kind` and `nexus.telemetry.schema.version`; terminal outcomes use
-`attempt.outcome_authority`, and source progress uses `leg.index` / `leg.status`.
-Accepted quotes emit one record per distinct source chain/token pair plus one for the destination,
-with `chain.id`, `chain.role`, and `token.address` on each record.
+Product analytics can be disabled with `analytics: { enabled: false }` in the client config.
+Diagnostic logging is configured separately; see the [telemetry reference](docs/TELEMETRY.md).
 
-Payment reporting distinguishes `completed`, `stopped`, `rejected`, and `failed`. User declines
-before commitment are stopped; system errors before commitment are rejected. Middleware status
-confirms delivery or expiry. A timeout or lost connection after commitment records an observation
-error with `attempt.pending: true`; check the intent status before retrying.
+## Migrating an existing integration
 
-Swap delivery completes the payment attempt even when a later `swapAndExecute` contract call fails.
-Partial balance responses return the available balances and emit a separate partial-response event.
+Use address-based swaps for removed `bridge` / `bridgeAndTransfer` methods and `swapAndExecute`
+for `bridgeAndExecute`. There is no recipient override or standalone swap simulation method;
+use quote review through `onIntent`. `getBalancesForSwap` is a deprecated alias of `getBalances`.
 
-Async catalog helpers report `nexus_v2_catalog_fetch_started` followed by success or failure,
-with the method name and operation ID. `nexus_v2_operation_performance` records each helper's
-duration, including cache hits. Catalog errors include structured reason/code/category/service
-metadata; an empty page or incompatible route result is a successful catalog check.
-
-See [the SDK telemetry contract](docs/TELEMETRY.md) for event names, shared error buckets,
-privacy boundaries, and reconciliation requirements. Product analytics configuration controls
-PostHog; diagnostic OTel logging remains independent, as with existing error logs.
-
-## Migration from bridge APIs
-
-This is a breaking release. The SDK no longer exposes `bridge`, `bridgeAndTransfer`,
-`bridgeAndExecute`, their simulation methods, `getBalancesForBridge`, bridge/transfer parameter
-and result types, or bridge/transfer analytics events. The bridge-only `onAllowance` hook and its
-selection types are also removed.
-
-Use `swapWithExactOut` or `swapWithExactIn` for same-asset or cross-asset intents, `swapAndExecute`
-for destination contract calls, and `getBalances` for holdings. Identify tokens by chain ID
-and contract address rather than symbol. There is no replacement recipient override or standalone
-swap simulation method; review quotes through `onIntent`.
-
-## Migration from the local router
-
-This SDK no longer exposes or runs:
-
-- `calculateMaxForSwap` or `calculateMaxForBridge`
-- client-side route and quote calculation
-- aggregator-specific public route types
-- Safe-specific clients/configuration
-- ephemeral-key configuration or execution
-- old bridge/swap plan-progress event unions
-
-Use balance selection plus a reviewed `IntentQuote`; the middleware is the source of truth for the
-executable route and fees.
-
-## Development
-
-```bash
-npm run typecheck
-npm run typecheck:tests
-npm run test
-npm run lint
-npm run lint:deps
-npm run build
-```
-
-See [Architecture](docs/ARCHITECTURE.md), [Conventions](docs/CONVENTIONS.md), and the preserved
-[browser example](example/browser).
-
-The browser's Swap & Deposit tab uses the composite `onIntent` payload for its funding review and
-periodic fee refresh. It shows destination balances and shortfalls even when funding is skipped,
-and keeps the operation in progress until the destination execution completes.
+Remove local max/routing helpers, Safe and ephemeral-key configuration, `onAllowance`, and old
+bridge/swap plan events. Use `options.hooks`, `IntentQuote`, `IntentEvent`, and `IntentResult`.
+Utility functions are available from `@avail-project/nexus-core/utils` and `client.utils`.
