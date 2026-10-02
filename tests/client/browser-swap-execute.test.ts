@@ -80,7 +80,7 @@ it('uses the composite hook and completes a fully funded deposit after execution
   expect(completed().has('TRANSACTION_CONFIRMED')).toBe(true);
   expect(ctx.handleProgressEvent).toHaveBeenLastCalledWith({ type: 'status', status: 'completed' });
   expect(ctx.handleProgressEvent).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'plan_progress', stepType: 'execute_transaction', state: 'confirmed',
+    type: 'step', state: 'completed', step: expect.objectContaining({ type: 'execute_transaction' }),
     txHash: '0x1234', explorerUrl: 'https://explorer.test/tx/0x1234',
   }));
   expect(result.hashes).toContainEqual({ label: 'Deposit tx', value: '0x1234', href: 'https://explorer.test/tx/0x1234' });

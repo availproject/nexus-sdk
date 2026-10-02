@@ -421,7 +421,7 @@ The steps card (`.exec-steps`) — second white card, only this scrolls internal
 | `done` | Filled `var(--accent)` circle with white checkmark | `var(--text)`, weight 600 | Muted "`X` sec ago" (from `step.completedAt`) |
 | `failed` | Filled `var(--danger)` circle with white X | `var(--text)`, weight 600 | `var(--danger)` error message |
 
-The `rawState` field on `NormalizedStep` captures the SDK's raw state string (`"wallet_prompted"`, `"started"`, `"submitted"`, `"confirmed"`, `"failed"`) so the UI can tell wallet-prompt steps apart from automated / server-side execution. The previous blanket "Approve in wallet" sub-text was misleading for steps like `bridge_fill` / `vault_deposit` / `destination_swap` / `request_submission` that don't need a wallet popup.
+The `rawState` field on `NormalizedStep` retains the SDK's step state (`"started"`, `"completed"`, `"failed"`), while `state` maps it to the UI's active, done, or failed state.
 
 Steps stay in **natural execution order**. The active step shows a chevron toggle in place; **collapsed** (the default) renders only that active row, **expanded** reveals the full plan with the active row still in its real position — never lifted to the top. A `useEffect` with `setInterval(setNow(Date.now()), 1000)` ticks every second so "X sec ago" stays fresh.
 
@@ -465,7 +465,7 @@ Toggle button label swap (`Hide Details` / `View Details`) and chevron rotation 
 
 **`ExecutionProgressState`** (in `lib/types.ts`) holds: `phase`, `steps`, `operationType`, `resultLinks`, `header?`, `result?`, `startedAt`, `completedAt?`, `failureKind?`, `failureReason?`. `NormalizedStep` adds `rawState?`, `completedAt?`.
 
-`useExecutionProgress` (in `hooks/useExecutionProgress.ts`) exposes `state`, `openModal(header?)`, `closeModal()`, `handleEvent(ev)`, `handleError(err, opts?)`, and `attachResult(result)`. The hook also logs `plan_preview` / `plan_confirmed` (raw steps + normalized list) and per-step terminal transitions (raw event, raw step, normalized step, all-steps snapshot) to the console — useful for SDK debugging.
+`useExecutionProgress` (in `hooks/useExecutionProgress.ts`) exposes `state`, `openModal(header?)`, `closeModal()`, `handleEvent(ev)`, `handleError(err, opts?)`, and `attachResult(result)`. It consumes `quote`, `step`, and `status` events. The deposit tab emits a `step` completion with its transaction hash and explorer URL after execution returns; the hook retains that link once, then the tab emits the app's `completed` status. Funding fulfillment alone keeps composite execution pending.
 
 ### Topbar & tabs
 

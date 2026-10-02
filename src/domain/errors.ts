@@ -407,18 +407,6 @@ export const Errors = {
       context: toContext(opts),
     }),
 
-  simulation: (msg: string, opts: WrapOpts<SimulationService>): SimulationError =>
-    new SimulationError(ERROR_CODES.SIMULATION_ERROR, msg, {
-      details: opts.details,
-      context: toContext(opts),
-    }),
-
-  externalService: (msg: string, opts: WrapOpts<ExternalServiceService>): ExternalServiceError =>
-    new ExternalServiceError(ERROR_CODES.EXTERNAL_SERVICE_ERROR, msg, {
-      details: opts.details,
-      context: toContext(opts),
-    }),
-
   // ── validation/* named factories
   sdkNotInitialized: (): ValidationError =>
     new ValidationError(ERROR_CODES.SDK_NOT_INITIALIZED, 'SDK is not initialized()', {

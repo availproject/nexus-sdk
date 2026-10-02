@@ -377,8 +377,8 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
     ctx.setCompletedSteps((previous) => new Set(previous).add("TRANSACTION_CONFIRMED"));
     ctx.setStatusMessage("");
     ctx.handleProgressEvent?.({
-      type: "plan_progress", stepType: "execute_transaction", step: executeStep,
-      state: "confirmed", txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
+      type: "step", step: executeStep, state: "completed",
+      txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
     });
     ctx.handleProgressEvent?.({ type: "status", status: "completed" });
     const hashes: Array<{ label: string; value: string; href?: string }> = [];

@@ -212,8 +212,6 @@ export type ExecuteSendResult = {
   approvalHash: Hex | undefined;
 };
 
-export const toPlanTokenMetadata = (token: PlanTokenMetadata): PlanTokenMetadata => token;
-
 const toChainDisplay = (chain: Chain) => {
   const {
     id,
@@ -244,7 +242,7 @@ export const createExecutePlanContext = (input: {
         type: 'execute_approval',
         id: createExecuteApprovalStepId(input.chain.id, input.approval.token.contractAddress),
         chain: toChainDisplay(input.chain),
-        token: toPlanTokenMetadata(input.approval.token),
+        token: input.approval.token,
         spender: input.approval.spender,
         amount: divDecimals(input.approval.amount, input.approval.token.decimals).toFixed(),
         amountRaw: input.approval.amount.toString(),

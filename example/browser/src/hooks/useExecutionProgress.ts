@@ -16,23 +16,11 @@ type RawStep = {
   chainId?: number;
   tokenAddress?: string;
   chain?: { id: number; name: string; logo: string };
-  asset?: { symbol: string; amount: string; logo?: string };
   token?: { symbol: string; logo?: string };
-  swaps?: Array<{
-    input: { symbol: string; amount: string; logo?: string };
-    output: { symbol: string; amount: string; logo?: string };
-  }>;
   to?: string;
 };
 
 const STEP_LABELS: Record<string, (step: RawStep) => string> = {
-  source_swap: (s) => `Swap on ${s.chain?.name ?? "source"}`,
-  eoa_to_ephemeral_transfer: (s) => `Transfer on ${s.chain?.name ?? "chain"}`,
-  destination_swap: (s) => `Swap on ${s.chain?.name ?? "destination"}`,
-  allowance_approval: (s) => `Approve ${s.token?.symbol ?? "token"} on ${s.chain?.name ?? "chain"}`,
-  request_signing: () => "Sign request",
-  request_submission: () => "Submit RFF",
-  vault_deposit: (s) => `Deposit on ${s.chain?.name ?? "chain"}`,
   execute_approval: (s) => `Approve ${s.token?.symbol ?? "token"}`,
   execute_transaction: (s) => `Execute on ${s.chain?.name ?? "chain"}`,
   erc20_approval: (s) => `Approve token on ${s.chain?.name ?? "source chain"}`,
@@ -44,17 +32,6 @@ const STEP_LABELS: Record<string, (step: RawStep) => string> = {
 };
 
 function extractToken(step: RawStep): NormalizedStep["token"] {
-  if (step.asset) {
-    return { symbol: step.asset.symbol, amount: step.asset.amount, logo: step.asset.logo };
-  }
-  if (step.swaps?.length) {
-    if (step.type === "destination_swap") {
-      const last = step.swaps[step.swaps.length - 1]!;
-      return { symbol: last.output.symbol, amount: last.output.amount, logo: last.output.logo };
-    }
-    const first = step.swaps[0]!;
-    return { symbol: first.input.symbol, amount: first.input.amount, logo: first.input.logo };
-  }
   if (step.token) {
     return { symbol: step.token.symbol, amount: "", logo: step.token.logo };
   }
@@ -83,20 +60,6 @@ export function mapStatusToPhase(
   operationType: ExecutionProgressState["operationType"],
 ): ProgressPhase | null {
   switch (status) {
-    case "preparing":
-      return "preparing";
-    case "route_building":
-      return "route_building";
-    case "intent_building":
-      return "intent_building";
-    case "route_ready":
-    case "intent_ready":
-    case "awaiting_approval":
-    case "awaiting_allowance_selection":
-      return "awaiting_approval";
-    case "approved":
-    case "executing":
-      return "executing";
     case "completed":
       return "completed";
     case "fulfilled":
@@ -111,13 +74,8 @@ export function mapStatusToPhase(
 
 function mapProgressState(state: string): StepState {
   switch (state) {
-    case "wallet_prompted":
     case "started":
-    case "waiting":
       return "active";
-    case "submitted":
-      return "submitted";
-    case "confirmed":
     case "completed":
       return "done";
     case "failed":
@@ -169,15 +127,12 @@ export function useExecutionProgress(operationType: OperationType) {
       const ev = event as {
         type?: string;
         status?: string;
-        stepType?: string;
         state?: string;
         step?: RawStep;
-        plan?: { steps?: RawStep[] };
         quote?: { plan?: { steps?: RawStep[] } };
         txHash?: string;
         explorerUrl?: string;
         error?: string;
-        intentRequestHash?: string;
       };
 
       if (!ev.type) return;
@@ -190,24 +145,6 @@ export function useExecutionProgress(operationType: OperationType) {
           draft.steps = ev.quote.plan.steps.map(normalizeStep);
         }
         draft.phase = "awaiting_approval";
-        scheduleFlush();
-        return;
-      }
-
-      // Plan preview/confirmed — populate steps
-      if (ev.type === "plan_preview" || ev.type === "plan_confirmed") {
-        if (ev.plan?.steps) {
-          draft.steps = ev.plan.steps.map(normalizeStep);
-          console.log(`[plan ${ev.type}]`, {
-            rawSteps: ev.plan.steps,
-            normalized: draft.steps.map((s) => ({
-              id: s.id,
-              type: s.type,
-              label: s.label,
-              chain: s.chain?.name,
-            })),
-          });
-        }
         scheduleFlush();
         return;
       }
@@ -232,61 +169,6 @@ export function useExecutionProgress(operationType: OperationType) {
         return;
       }
 
-      // Progress events — update individual steps
-      if (ev.type === "plan_progress" && ev.stepType) {
-        console.log(`[plan_progress:raw]`, {
-          event: ev
-        });
-        const stepId = ev.step?.id;
-        const target = stepId
-          ? draft.steps.find((s) => s.id === stepId)
-          : draft.steps.find((s) => s.type === ev.stepType && s.state !== "done");
-
-        if (target) {
-          const prevState = target.state;
-          target.state = mapProgressState(ev.state ?? "active");
-          target.rawState = ev.state;
-          if (ev.txHash) target.txHash = ev.txHash;
-          if (ev.explorerUrl) target.explorerUrl = ev.explorerUrl;
-          if (ev.error) target.error = ev.error;
-          if (ev.intentRequestHash && !target.explorerUrl) {
-            target.explorerUrl = ev.explorerUrl;
-          }
-          // Stamp completion time the first time we transition into a terminal state.
-          if (
-            (target.state === "done" || target.state === "failed") &&
-            prevState !== target.state &&
-            target.completedAt === undefined
-          ) {
-            target.completedAt = Date.now();
-            console.log(`[plan_progress ${target.state}] ${target.label}`, {
-              rawEvent: ev,
-              rawStep: ev.step,
-              normalized: { id: target.id, type: target.type, label: target.label },
-              allSteps: draft.steps.map((s) => ({
-                id: s.id,
-                type: s.type,
-                label: s.label,
-                state: s.state,
-              })),
-            });
-          }
-
-          // Collect result links from completed steps. The link label can
-          // diverge from the step label — e.g. the in-progress step reads
-          // "Submit request" while the end-state link reads "View RFF".
-          if (target.state === "done" && target.explorerUrl) {
-            const exists = draft.resultLinks.some((l) => l.href === target.explorerUrl);
-            if (!exists) {
-              const linkLabel = target.type === "request_submission" ? "View RFF" : target.label;
-              draft.resultLinks.push({ label: linkLabel, href: target.explorerUrl });
-            }
-          }
-        }
-        scheduleFlush();
-        return;
-      }
-
       // Better Intent emits one event per canonical plan-step transition.
       if (ev.type === "step" && ev.step) {
         let target = draft.steps.find((step) => step.id === ev.step?.id);
@@ -297,6 +179,8 @@ export function useExecutionProgress(operationType: OperationType) {
         const previousState = target.state;
         target.state = mapProgressState(ev.state ?? "started");
         target.rawState = ev.state;
+        if (ev.txHash) target.txHash = ev.txHash;
+        if (ev.explorerUrl) target.explorerUrl = ev.explorerUrl;
         if (ev.error) target.error = ev.error;
         if (
           (target.state === "done" || target.state === "failed") &&
@@ -304,6 +188,10 @@ export function useExecutionProgress(operationType: OperationType) {
           target.completedAt === undefined
         ) {
           target.completedAt = Date.now();
+        }
+        if (target.state === "done" && target.explorerUrl &&
+          !draft.resultLinks.some((link) => link.href === target.explorerUrl)) {
+          draft.resultLinks.push({ label: target.label, href: target.explorerUrl });
         }
         draft.phase = target.state === "failed" ? "failed" : "executing";
         scheduleFlush();

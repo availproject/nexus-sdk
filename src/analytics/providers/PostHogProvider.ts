@@ -157,11 +157,4 @@ export class PostHogProvider implements AnalyticsProvider {
   isInitialized(): boolean {
     return this.initialized;
   }
-
-  /**
-   * Get the named PostHog instance for advanced usage
-   */
-  getPostHog(): PostHog | null {
-    return this.instance;
-  }
 }

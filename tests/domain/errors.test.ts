@@ -158,22 +158,6 @@ describe('Errors.* wrap helpers categorize a failure (no cause capture)', () => 
     expect(wallet.context.service).toBe('wallet');
     expect(rpc.context.service).toBe('rpc');
   });
-
-  it('externalService supports coinbase among others', () => {
-    const err = Errors.externalService('rates fetch failed', {
-      service: 'coinbase',
-      operation: 'getCoinbaseRates',
-    });
-    expect(err).toBeInstanceOf(ExternalServiceError);
-    expect(err.context.service).toBe('coinbase');
-    expect(err.context.operation).toBe('getCoinbaseRates');
-  });
-
-  it('simulation defaults to rpc service', () => {
-    const err = Errors.simulation('sim failed', { service: 'rpc' });
-    expect(err).toBeInstanceOf(SimulationError);
-    expect(err.context.service).toBe('rpc');
-  });
 });
 
 describe('Errors.* named factories', () => {

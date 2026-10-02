@@ -37,18 +37,6 @@ export function toFixed(value: string | number | Decimal, dp: number): string {
   return D(value).toFixed(dp);
 }
 
-/** Round to at most `dp` decimal places, dropping trailing zeros.
- *
- *  Always goes through `toFixed` (never `toString`) so the output is a plain
- *  decimal string — `decimal.js` `.toString()` can emit exponential notation
- *  for very small / very large numbers, which would leak into the UI.
- */
-export function trimDp(value: string | number | Decimal, dp: number): string {
-  const fixed = D(value).toFixed(dp);
-  if (!fixed.includes(".")) return fixed;
-  return fixed.replace(/\.?0+$/, "");
-}
-
 export function gt(a: string | number | Decimal, b: string | number | Decimal): boolean {
   return D(a).gt(D(b));
 }

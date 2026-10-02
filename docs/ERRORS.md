@@ -192,8 +192,9 @@ mismatch.
   `Errors.foo(): UserActionError` (see `userRejectedAllowance`,
   `userRejectedIntentSignature`, `userRejectedTxSend`).
 - For wrapping an unknown failure into a category: the per-category wrap
-  helpers `Errors.backend(msg, opts)`, `Errors.execution(msg, opts)`,
-  `Errors.simulation(msg, opts)`, `Errors.externalService(msg, opts)`.
+  helpers `Errors.backend(msg, opts)` and `Errors.execution(msg, opts)`.
+  Construct `SimulationError` and `ExternalServiceError` directly with the
+  applicable `ERROR_CODES` entry and context.
   Inline the underlying text into `msg` via `formatUnknownError(cause)` at
   the call site — the helpers don't take a `cause` argument.
 
@@ -298,8 +299,8 @@ intent was accepted; callers should check its status before retrying.
   `Errors.transactionReverted(hash)`, `Errors.userRejectedTxSend()`, …) when
   one covers the case.
 - For unexpected external failures use the per-category wrap helpers
-  (`Errors.backend`, `Errors.execution`, `Errors.simulation`,
-  `Errors.externalService`), inlining the underlying text into the message.
+  (`Errors.backend`, `Errors.execution`), inlining the underlying text
+  into the message. Construct simulation and external-service errors directly.
 - Use `Errors.internal(msg)` only for genuine SDK invariants, never as a
   generic wrap.
 - For step-bound failures throw the subclass directly with
