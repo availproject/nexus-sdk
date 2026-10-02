@@ -78,7 +78,7 @@ it('uses the composite hook and completes a fully funded deposit after execution
 
   const result = await SWAP_AND_EXECUTE_TAB.execute(ctx);
   expect(completed().has('TRANSACTION_CONFIRMED')).toBe(true);
-  expect(ctx.handleProgressEvent).toHaveBeenLastCalledWith({ type: 'status', status: 'completed' });
+  expect(ctx.handleProgressEvent).not.toHaveBeenCalledWith({ type: 'status', status: 'completed' });
   expect(ctx.handleProgressEvent).toHaveBeenCalledWith(expect.objectContaining({
     type: 'step', state: 'completed', step: expect.objectContaining({ type: 'execute_transaction' }),
     txHash: '0x1234', explorerUrl: 'https://explorer.test/tx/0x1234',
@@ -98,8 +98,7 @@ it('keeps execution incomplete after a funding intent is fulfilled', async () =>
   expect(ctx.handleProgressEvent).not.toHaveBeenCalledWith({ type: 'status', status: 'completed' });
 });
 
-it('distinguishes funding fulfillment from composite execution completion', () => {
-  expect(mapStatusToPhase('fulfilled', 'swap')).toBe('completed');
-  expect(mapStatusToPhase('fulfilled', 'swapAndExecute')).toBe('executing');
-  expect(mapStatusToPhase('completed', 'swapAndExecute')).toBe('completed');
+it('keeps fulfillment pending until the operation result is ready', () => {
+  expect(mapStatusToPhase('fulfilled')).toBe('executing');
+  expect(mapStatusToPhase('completed')).toBe('completed');
 });

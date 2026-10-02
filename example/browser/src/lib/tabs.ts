@@ -109,7 +109,7 @@ function buildIntentHashes(client: NexusClient, result: IntentResult) {
       href: tx.txExplorerUrl,
     })),
     {
-      label: "Intent",
+      label: "RFF Intent",
       value: result.intentId,
       href: result.intentExplorerUrl,
     },
@@ -380,7 +380,6 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
       type: "step", step: executeStep, state: "completed",
       txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
     });
-    ctx.handleProgressEvent?.({ type: "status", status: "completed" });
     const hashes: Array<{ label: string; value: string; href?: string }> = [];
     const route: import("./types").SwapRouteStep[] = [];
 

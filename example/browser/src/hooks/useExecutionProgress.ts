@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type {
   ExecutionProgressState,
   NormalizedStep,
+  OperationResult,
   ProgressHeader,
   ProgressPhase,
   ProgressResult,
@@ -55,15 +56,12 @@ function normalizeStep(raw: RawStep): NormalizedStep {
 
 /* ── State mapping from SDK events ───────────────────────────────── */
 
-export function mapStatusToPhase(
-  status: string,
-  operationType: ExecutionProgressState["operationType"],
-): ProgressPhase | null {
+export function mapStatusToPhase(status: string): ProgressPhase | null {
   switch (status) {
     case "completed":
       return "completed";
     case "fulfilled":
-      return operationType === "swapAndExecute" ? "executing" : "completed";
+      return "executing";
     case "created":
     case "deposited":
       return "executing";
@@ -151,7 +149,7 @@ export function useExecutionProgress(operationType: OperationType) {
 
       // Status events — update phase
       if (ev.type === "status" && ev.status) {
-        const phase = mapStatusToPhase(ev.status, draft.operationType);
+        const phase = mapStatusToPhase(ev.status);
         if (phase) {
           draft.phase = phase;
           // On completion, mark any remaining active/submitted steps as done
@@ -250,6 +248,25 @@ export function useExecutionProgress(operationType: OperationType) {
     [ensureDraft, scheduleFlush],
   );
 
+  const complete = useCallback(
+    (result: OperationResult) => {
+      const draft = ensureDraft();
+      const destination = result.richResult?.route
+        .filter((step) => step.type === "destination")
+        .at(-1);
+      if (draft.header && destination) {
+        draft.header = { ...draft.header, amount: destination.amount };
+      }
+      for (const hash of result.hashes) {
+        if (hash.href && !draft.resultLinks.some((link) => link.href === hash.href)) {
+          draft.resultLinks.push({ label: hash.label, href: hash.href });
+        }
+      }
+      handleEvent({ type: "status", status: "completed" });
+    },
+    [ensureDraft, handleEvent],
+  );
+
   const closeModal = useCallback(() => {
     draftRef.current = null;
     if (flushRef.current !== null) {
@@ -259,5 +276,5 @@ export function useExecutionProgress(operationType: OperationType) {
     setState(null);
   }, []);
 
-  return { state, openModal, closeModal, handleEvent, handleError, attachResult };
+  return { state, openModal, closeModal, handleEvent, handleError, attachResult, complete };
 }

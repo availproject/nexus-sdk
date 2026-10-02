@@ -465,7 +465,7 @@ Toggle button label swap (`Hide Details` / `View Details`) and chevron rotation 
 
 **`ExecutionProgressState`** (in `lib/types.ts`) holds: `phase`, `steps`, `operationType`, `resultLinks`, `header?`, `result?`, `startedAt`, `completedAt?`, `failureKind?`, `failureReason?`. `NormalizedStep` adds `rawState?`, `completedAt?`.
 
-`useExecutionProgress` (in `hooks/useExecutionProgress.ts`) exposes `state`, `openModal(header?)`, `closeModal()`, `handleEvent(ev)`, `handleError(err, opts?)`, and `attachResult(result)`. It consumes `quote`, `step`, and `status` events. The deposit tab emits a `step` completion with its transaction hash and explorer URL after execution returns; the hook retains that link once, then the tab emits the app's `completed` status. Funding fulfillment alone keeps composite execution pending.
+`useExecutionProgress` (in `hooks/useExecutionProgress.ts`) exposes `state`, `openModal(header?)`, `closeModal()`, `handleEvent(ev)`, `handleError(err, opts?)`, `attachResult(result)`, and `complete(result)`. It consumes `quote`, `step`, and `status` events. The deposit tab emits a `step` completion with its transaction hash and explorer URL after execution returns. `useOperationForm` passes the returned operation result to `complete`, which replaces the form amount with the final destination route amount and merges explorer links without duplicates before showing success. Swaps display “You received”; deposits display “You deposited” with the full deposit amount rather than the funding shortfall. Fulfillment alone keeps the modal pending until the result is ready.
 
 ### Topbar & tabs
 

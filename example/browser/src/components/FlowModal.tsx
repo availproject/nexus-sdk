@@ -404,7 +404,15 @@ function ProgressHero({ header }: { header?: ProgressHeader }) {
   );
 }
 
-function SuccessHero({ header, duration }: { header?: ProgressHeader; duration: number | null }) {
+function SuccessHero({
+  header,
+  duration,
+  operationType,
+}: {
+  header?: ProgressHeader;
+  duration: number | null;
+  operationType: ExecutionProgressState["operationType"];
+}) {
   if (!header) return null;
   return (
     <div className="exec-success-hero">
@@ -414,7 +422,9 @@ function SuccessHero({ header, duration }: { header?: ProgressHeader; duration: 
           <CheckMark />
         </span>
       </div>
-      <div className="exec-success-eyebrow">You received</div>
+      <div className="exec-success-eyebrow">
+        {operationType === "swapAndExecute" ? "You deposited" : "You received"}
+      </div>
       <div className="exec-success-amount">
         <span className="exec-success-amount-value">{header.amount}</span>
         <span className="exec-success-amount-symbol">{header.destTokenSymbol}</span>
@@ -639,7 +649,11 @@ function CompletedBody({
 }) {
   return (
     <>
-      <SuccessHero header={state.header} duration={duration} />
+      <SuccessHero
+        header={state.header}
+        duration={duration}
+        operationType={state.operationType}
+      />
       <div className="exec-steps">
         {state.result && <SourcesAccordion result={state.result} />}
         <StepsAccordion steps={state.steps} now={now} />

@@ -293,6 +293,7 @@ export function useOperationForm({
       if (activeClientRef.current !== client) return result;
       console.log(`[execute] ${config.id} result:`, result);
 
+      progress.complete(result);
       setResultHashes(result.hashes);
       if (result.richResult) setRichResult(result.richResult);
       if (result.marketUrl) setMarketUrl(result.marketUrl);
