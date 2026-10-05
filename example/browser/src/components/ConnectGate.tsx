@@ -14,9 +14,6 @@ export function ConnectGate() {
         <strong className="connect-gate-keyword connect-gate-keyword--primary">Swap</strong> across chains.
       </p>
       <p className="connect-gate-line">
-        <strong className="connect-gate-keyword connect-gate-keyword--accent">Bridge</strong> in one click.
-      </p>
-      <p className="connect-gate-line">
         Deposit into <strong className="connect-gate-keyword connect-gate-keyword--success">DeFi</strong>.
       </p>
     </div>

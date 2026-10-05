@@ -22,17 +22,13 @@ execution, and balance discovery. The public client is created with `createNexus
 
 ## Repo Map
 
-- `src/abi/` — contract ABIs used by bridge, execute, and swap flows
+- `src/client/` — public client assembly, state, types, utilities, operation boundaries
+- `src/intent/` — middleware, catalog, swap inputs, normalization, funding, wallet, orchestrator
+- `src/execute/` — execute/simulate entrypoints, runtime, approvals, wallet capabilities
 - `src/analytics/` — telemetry, timing spans, analytics providers, event definitions
-- `src/core/` — public SDK assembly, client factory, client types, event adapters
-- `src/flows/` — thin public orchestration and composition entrypoints
-- `src/bridge/` — bridge-specific preview, intent, allowance, execution, progress
-- `src/execute/` — execute runtime and execute-progress mapping
-- `src/swap/` — routing, preflight, execution, wallet logic, progress
+- `src/domain/` — shared types, errors, constants, ABI, validation, formatting, logging
 - `src/services/` — cross-feature helpers only
-- `src/transport/` — middleware and simulation clients, request lifecycle
-- `src/domain/` — types, errors, constants, validation, shared utilities
-- `tests/` — mirrors `src/` and includes public API and type-surface tests
+- `tests/` — follows source ownership, plus public API guardrails, fixtures, and helpers
 
 ## Non-Negotiables
 
@@ -41,15 +37,15 @@ execution, and balance discovery. The public client is created with `createNexus
 - Update `README.md` as part of any public API change. End-user docs must stay in sync with the
   shipped SDK surface.
 - Keep the high-level dependency direction intact:
-  - `src/core/` is the top assembly layer
-  - `src/flows/` stays thin
-  - `src/bridge/`, `src/execute/`, and `src/swap/` own feature internals
+  - `src/client/` is the top assembly layer
+  - `src/intent/` owns swap intent internals and middleware transport
+  - `src/execute/` owns standalone execute entrypoints and internals
   - `src/services/` is only for cross-feature helpers
   - lower layers must not grow back-references into higher orchestration layers
-- Keep package boundaries intact. `src/core/` is the assembly layer. `src/flows/` stays thin.
-  Bridge-only code belongs in `src/bridge/`, swap-only code in `src/swap/`, shared execute code in
-  `src/execute/`, and only cross-feature helpers belong in `src/services/`.
-- `src/services/` must not import `src/flows/`. This is CI-enforced by `npm run lint:deps`.
+- Keep feature modules beside their consumers. Use flat folders unless several related modules
+  warrant a subdirectory; do not recreate single-file wrappers or pass-through barrels.
+- `src/services/` must not import `src/execute/` or `src/client/`. Analytics must not import
+  client, intent, or execute modules. `npm run lint:deps` enforces these boundaries.
 - Normalize external API and contract responses at the transport boundary before they reach
   business logic.
 - Use `Errors.*` / the `NexusError` subclasses from `src/domain/errors.ts` for validation, state,
@@ -72,43 +68,40 @@ Public surface and client assembly:
 
 - `src/index.ts`
 - `src/utils.ts`
-- `src/core/sdk/client.ts`
-- `src/core/sdk/base.ts`
-- `src/core/types.ts`
+- `src/client/create-client.ts`
+- `src/client/base.ts`
+- `src/client/types.ts`
 - `src/analytics/`
 
 Architecture and flow ownership:
 
 - `docs/ARCHITECTURE.md`
-- `src/flows/`
-- `src/bridge/`
+- `src/intent/`
 - `src/execute/`
-- `src/swap/`
 
 Key domain and transport pieces:
 
-- `src/abi/`
+- `src/domain/erc20-abi.ts`
 - `src/domain/errors.ts`
-- `src/domain/types/`
-- `src/domain/utils/validation.ts`
-- `src/transport/middleware.ts`
-- `src/transport/ws-request.ts`
+- `src/domain/types.ts`
+- `src/domain/validation.ts`
+- `src/intent/middleware.ts`
+- `src/intent/normalize.ts`
 
 Common implementation hotspots:
 
-- Bridge: `src/bridge/intent/`, `src/bridge/allowances/`, `src/bridge/executor.ts`,
-  `src/bridge/progress.ts`
-- Execute: `src/execute/runtime.ts`, `src/execute/progress.ts`
-- Swap: `src/swap/route.ts`, `src/swap/preflight.ts`, `src/swap/prepare.ts`,
-  `src/swap/execution/`, `src/swap/progress.ts`
-- Shared helpers: `src/services/chain-list.ts`, `src/services/balances.ts`,
-  `src/services/fee-estimation.ts`, `src/services/wallet-capabilities.ts`
+- Intent: `src/intent/orchestrator.ts`, `src/intent/wallet.ts`, `src/intent/catalog.ts`,
+  `src/intent/funding.ts`
+- Execute: `src/execute/runtime.ts`, `src/execute/execute.ts`
+- Public request construction: `src/client/base.ts`
+- Execute helpers: `src/execute/allowance.ts`, `src/execute/wallet-capabilities.ts`
+- Shared helpers: `src/services/chain-list.ts`, `src/services/evm.ts`
 
 Tests to inspect first:
 
 - `tests/public-api.test.ts`
-- feature tests under `tests/flows/`, `tests/swap/`, `tests/services/`, `tests/transport/`
-- surface and type tests under `tests/types/`
+- feature tests under `tests/intent/`, `tests/client/`, and `tests/execute/`
+- type-surface guards under `tests/client/`
 
 ## Change Checklist
 

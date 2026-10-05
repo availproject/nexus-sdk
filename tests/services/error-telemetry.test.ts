@@ -41,7 +41,7 @@ describe('reportOperationError — basic emission', () => {
     currentLogger = null;
     expect(() =>
       reportOperationError({
-        operation: 'bridge',
+        operation: 'swapWithExactOut',
         operationId: 'op_1',
         error: new Error('x'),
       }),
@@ -56,23 +56,25 @@ describe('reportOperationError — basic emission', () => {
       { context: { service: 'middleware' } },
     );
     reportOperationError({
-      operation: 'getBalancesForBridge',
+      operation: 'getBalancesForSwap',
       operationId: 'op_1',
       error: err,
     });
     const attrs = getAttributes();
-    expect(attrs.operation).toBe('getBalancesForBridge');
+    expect(attrs.operation).toBe('getBalancesForSwap');
     expect(attrs['operation.id']).toBe('op_1');
     expect(attrs['error.name']).toBe('BackendError');
     expect(attrs['error.category']).toBe('backend');
-    expect(attrs['error.code']).toBe('backend/balances_fetch_failed');
+    expect(attrs['error.code']).toBe('unavailable');
+    expect(attrs['error.type']).toBe('backend/balances_fetch_failed');
+    expect(attrs).not.toHaveProperty('reason.bucket');
     expect(attrs['error.service']).toBe('middleware');
     expect(attrs['error.message']).toBe('fetch failed');
   });
 
-  it('emits sensible defaults for a plain Error (no category/code/service)', () => {
+  it('emits an unknown bucket for a plain Error without an SDK type, category or service', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       error: new Error('boom'),
     });
@@ -80,7 +82,9 @@ describe('reportOperationError — basic emission', () => {
     expect(attrs['error.name']).toBe('Error');
     expect(attrs['error.message']).toBe('boom');
     expect(attrs['error.category']).toBeUndefined();
-    expect(attrs['error.code']).toBeUndefined();
+    expect(attrs['error.code']).toBe('unknown');
+    expect(attrs['error.type']).toBeUndefined();
+    expect(attrs).not.toHaveProperty('reason.bucket');
     expect(attrs['error.service']).toBeUndefined();
   });
 
@@ -90,7 +94,7 @@ describe('reportOperationError — basic emission', () => {
       context: { service: 'wallet' },
       details: { data: longHex, calldata: longHex, signature: '0xdeadbeefSECRET' },
     });
-    reportOperationError({ operation: 'bridge', operationId: 'op_1', error: err });
+    reportOperationError({ operation: 'swapWithExactOut', operationId: 'op_1', error: err });
     const details = String(getAttributes()['error.details']);
     expect(details).toContain('[hex:402B]');
     expect(details).toContain('[redacted]');
@@ -102,7 +106,7 @@ describe('reportOperationError — basic emission', () => {
     const err = new BackendError(ERROR_CODES.BACKEND_BALANCES_FETCH_FAILED, 'fetch failed', {
       context: { service: 'middleware' },
     });
-    reportOperationError({ operation: 'bridge', operationId: 'op_1', error: err });
+    reportOperationError({ operation: 'swapWithExactOut', operationId: 'op_1', error: err });
     const attrs = getAttributes();
     expect(attrs['error.chain']).toBeUndefined();
     expect(attrs['error.rootCause.name']).toBeUndefined();
@@ -117,7 +121,7 @@ describe('reportOperationError — basic emission', () => {
     try {
       expect(() =>
         reportOperationError({
-          operation: 'bridge',
+          operation: 'swapWithExactOut',
           operationId: 'op_1',
           error: new Error('x'),
         }),
@@ -169,7 +173,7 @@ describe('sanitizer — applied to params + options before flattening', () => {
 
   it('bigint becomes string', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: { toAmountRaw: 1_000_000n, toChainId: 137 },
       error: baseErr(),
@@ -181,24 +185,24 @@ describe('sanitizer — applied to params + options before flattening', () => {
 
   it('hex >12 chars is truncated to first-6 / last-4', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
-      params: { recipient: '0xAB12CDEF34567890ABCDEF12345678901234567A' },
+      params: { toTokenAddress: '0xAB12CDEF34567890ABCDEF12345678901234567A' },
       error: baseErr(),
     });
     const attrs = getAttributes();
-    expect(attrs['params.recipient']).toBe('0xAB12…567A');
+    expect(attrs['params.toTokenAddress']).toBe('0xAB12…567A');
   });
 
   it('short hex passes through unchanged', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
-      params: { recipient: '0xabcd' },
+      params: { toTokenAddress: '0xabcd' },
       error: baseErr(),
     });
     const attrs = getAttributes();
-    expect(attrs['params.recipient']).toBe('0xabcd');
+    expect(attrs['params.toTokenAddress']).toBe('0xabcd');
   });
 
   it('keys named data/calldata/abi/bytecode become [hex:NB] when value is hex >12', () => {
@@ -215,7 +219,7 @@ describe('sanitizer — applied to params + options before flattening', () => {
 
   it('signature/privateKey/mnemonic keys are redacted', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: {
         signature: '0xdeadbeef',
@@ -235,7 +239,7 @@ describe('sanitizer — applied to params + options before flattening', () => {
 
   it('functions and provider-like objects are dropped', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: {
         toChainId: 137,
@@ -262,7 +266,7 @@ describe('sanitizer — applied to params + options before flattening', () => {
     }
     cur.leaf = 'deepest';
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: deep,
       error: baseErr(),
@@ -275,7 +279,7 @@ describe('sanitizer — applied to params + options before flattening', () => {
 
   it('arrays longer than 32 keep first 32 plus …(N more) marker', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: { sources: Array.from({ length: 50 }, (_, i) => i) },
       error: baseErr(),
@@ -289,22 +293,20 @@ describe('sanitizer — applied to params + options before flattening', () => {
 describe('flattening allow-list — real public field names', () => {
   it('emits each allow-listed params key as a top-level params.<key> attribute', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: {
         toChainId: 137,
-        toTokenSymbol: 'USDC',
         toAmountRaw: 1_000_000n,
-        recipient: '0xAB12CDEF34567890ABCDEF12345678901234567A',
+        toTokenAddress: '0xAB12CDEF34567890ABCDEF12345678901234567A',
         unrelated: 'should-stay-in-raw-only',
       },
       error: new Error('x'),
     });
     const attrs = getAttributes();
     expect(attrs['params.toChainId']).toBe(137);
-    expect(attrs['params.toTokenSymbol']).toBe('USDC');
     expect(attrs['params.toAmountRaw']).toBe('1000000');
-    expect(attrs['params.recipient']).toBe('0xAB12…567A');
+    expect(attrs['params.toTokenAddress']).toBe('0xAB12…567A');
     expect(attrs['params.unrelated']).toBeUndefined();
     const raw = String(attrs['params.raw']);
     expect(raw).toContain('unrelated');
@@ -330,7 +332,7 @@ describe('flattening allow-list — real public field names', () => {
 
   it('does NOT emit rev-8-era invented field names as top-level attributes', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: {
         toChainId: 137,
@@ -364,7 +366,7 @@ describe('flattening allow-list — real public field names', () => {
 
   it('always emits params.raw / options.raw, even with no allow-listed keys present', () => {
     reportOperationError({
-      operation: 'bridge',
+      operation: 'swapWithExactOut',
       operationId: 'op_1',
       params: { only: 'forensic-data' },
       options: { only: 'forensic-options' },
@@ -394,11 +396,9 @@ describe('allow-list constants — guard the contract', () => {
     expect(PARAMS_FLATTEN_KEYS).toEqual(
       expect.arrayContaining([
         'toChainId',
-        'toTokenSymbol',
         'toTokenAddress',
         'toAmountRaw',
         'toNativeAmountRaw',
-        'recipient',
         'sources',
         'to',
         'gasPrice',
@@ -407,7 +407,6 @@ describe('allow-list constants — guard the contract', () => {
         'waitForReceipt',
         'receiptTimeout',
         'requiredConfirmations',
-        'recentApprovalTxHash',
       ]),
     );
   });
@@ -439,10 +438,10 @@ describe('allow-list constants — guard the contract', () => {
 
 describe('reportOperationError — middleware error correlation attributes', () => {
   it('promotes errorId/middlewareCode/middlewareSubcode from details to error.middleware.*', () => {
-    const err = new BackendError(ERROR_CODES.BACKEND_SAFE_EXECUTE_FAILED, 'Safe execution failed', {
+    const err = new BackendError(ERROR_CODES.BACKEND_SBC_SUBMIT_FAILED, 'sbc failed', {
       context: { service: 'middleware' },
       details: {
-        error: 'Safe execution failed',
+        error: 'sbc failed',
         middlewareCode: 'TRANSACTION_REVERTED',
         middlewareSubcode: 'TRANSFER_FROM_FAILED',
         errorId: 'err-uuid-1',
@@ -460,7 +459,7 @@ describe('reportOperationError — middleware error correlation attributes', () 
       context: { service: 'middleware' },
       details: { error: 'boom' },
     });
-    reportOperationError({ operation: 'getBalancesForBridge', operationId: 'op_1', error: err });
+    reportOperationError({ operation: 'getBalancesForSwap', operationId: 'op_1', error: err });
     const attrs = getAttributes();
     expect(attrs['error.middleware.errorId']).toBeUndefined();
     expect(attrs['error.middleware.code']).toBeUndefined();

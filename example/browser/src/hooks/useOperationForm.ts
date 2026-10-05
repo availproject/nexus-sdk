@@ -1,44 +1,40 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { UserActionError, type NexusClient } from "@avail-project/nexus-core";
-import type { TabConfig, HashRecord, SwapResultData, BridgeResultData } from "../lib/types";
+import { ERROR_CODES, UserActionError, type NexusClient } from "@avail-project/nexus-core";
+import type { ExecuteContext, TabConfig, HashRecord, SwapResultData, TokenOption, SourceOption } from "../lib/types";
 import {
   flattenBalances,
   getErrorMessage,
   logError,
-  type BridgeAndExecuteIntentViewModel,
-  type BridgeIntentViewModel,
   type SwapAndExecuteIntentViewModel,
   type SwapIntentViewModel,
 } from "../lib/nexus";
 import { getChainLogoUrl, getTokenLogoUrl } from "../lib/logos";
 import { useExecutionProgress } from "./useExecutionProgress";
 import type { ProgressResult } from "../lib/types";
-import { D, sum, toFixed } from "../lib/math";
+import { D } from "../lib/math";
 import { formatAmount } from "../lib/format";
 
 function friendlyUserActionReason(code?: string): string | undefined {
   switch (code) {
-    case "USER_INTENT_SIGNATURE_DENIED":
+    case ERROR_CODES.USER_INTENT_SIGNATURE_DENIED:
       return "signature declined";
-    case "USER_SIWE_SIGNATURE_DENIED":
+    case ERROR_CODES.USER_SIWE_SIGNATURE_DENIED:
       return "SIWE signature declined";
-    case "USER_ALLOWANCE_APPROVAL_DENIED":
+    case ERROR_CODES.USER_ALLOWANCE_APPROVAL_DENIED:
       return "allowance declined";
-    case "USER_TX_SEND_DENIED":
+    case ERROR_CODES.USER_TX_SEND_DENIED:
       return "transaction declined";
     default:
       return undefined;
   }
 }
 
-function extractProgressResult(
+export function extractProgressResult(
   intentType: TabConfig["intentType"],
   swap: SwapIntentViewModel | null,
-  bridge: BridgeIntentViewModel | null,
   swapExec: SwapAndExecuteIntentViewModel | null,
-  bridgeExec: BridgeAndExecuteIntentViewModel | null,
 ): ProgressResult | null {
   const mapSwapSources = (vm: SwapIntentViewModel): ProgressResult => ({
     sources: vm.sources.map((s) => ({
@@ -51,25 +47,10 @@ function extractProgressResult(
       value: s.value,
     })),
     sourcesTotal: vm.sourcesTotal,
-    feesTotal: toFixed(sum([vm.buffer, vm.bridgeFees?.total]), 2),
-  });
-  const mapBridgeSources = (vm: BridgeIntentViewModel): ProgressResult => ({
-    sources: vm.sources.map((s) => ({
-      chainId: s.chainId,
-      chainName: s.chainName,
-      chainLogo: s.chainLogo,
-      tokenSymbol: s.tokenSymbol,
-      tokenLogo: getTokenLogoUrl(s.tokenSymbol, undefined, s.chainId),
-      amount: s.amount,
-    })),
-    sourcesTotal: vm.sourcesTotal,
     feesTotal: vm.fees.total,
   });
-
   if (intentType === "swap" && swap) return mapSwapSources(swap);
-  if (intentType === "bridge" && bridge) return mapBridgeSources(bridge);
   if (intentType === "swapAndExecute" && swapExec?.swap) return mapSwapSources(swapExec.swap);
-  if (intentType === "bridgeAndExecute" && bridgeExec?.bridge) return mapBridgeSources(bridgeExec.bridge);
   return null;
 }
 
@@ -78,28 +59,18 @@ type UseOperationFormParams = {
   client: NexusClient | null;
   ready: boolean;
   address?: `0x${string}`;
-  onSwapIntent: (data: any) => void;
-  onBridgeIntent: (data: any) => void;
-  onSwapExecIntent: (data: any) => void;
-  onBridgeExecIntent: (data: any) => void;
+  onSwapIntent: ExecuteContext["onSwapIntent"];
+  onSwapExecIntent: ExecuteContext["onSwapExecIntent"];
   swapIntentPending: boolean;
   swapIntentApproved: boolean;
   clearSwapIntent: () => void;
-  bridgeIntentPending: boolean;
-  bridgeIntentApproved: boolean;
-  clearBridgeIntent: () => void;
   swapExecIntentPending: boolean;
   swapExecIntentApproved: boolean;
   clearSwapExecIntent: () => void;
-  bridgeExecIntentPending: boolean;
-  bridgeExecIntentApproved: boolean;
-  clearBridgeExecIntent: () => void;
   /** Currently-active view-model for the matching intent type — used to
    *  thread source/fee details into the progress modal on approval. */
   swapIntent?: SwapIntentViewModel | null;
-  bridgeIntent?: BridgeIntentViewModel | null;
   swapExecIntent?: SwapAndExecuteIntentViewModel | null;
-  bridgeExecIntent?: BridgeAndExecuteIntentViewModel | null;
 };
 
 export function useOperationForm({
@@ -108,36 +79,33 @@ export function useOperationForm({
   ready,
   address,
   onSwapIntent,
-  onBridgeIntent,
   onSwapExecIntent,
-  onBridgeExecIntent,
   swapIntentPending,
   swapIntentApproved,
   clearSwapIntent,
-  bridgeIntentPending,
-  bridgeIntentApproved,
-  clearBridgeIntent,
   swapExecIntentPending,
   swapExecIntentApproved,
   clearSwapExecIntent,
-  bridgeExecIntentPending,
-  bridgeExecIntentApproved,
-  clearBridgeExecIntent,
   swapIntent,
-  bridgeIntent,
   swapExecIntent,
-  bridgeExecIntent,
 }: UseOperationFormParams) {
   const progress = useExecutionProgress(config.intentType);
   const chainOptions = useMemo(() => config.getChainOptions(client), [config, client]);
   const [chainId, setChainId] = useState<number>(config.defaultChainId);
-  const [tokenSymbol, setTokenSymbol] = useState<string>("USDC");
+  const [currentTokenOption, setCurrentTokenOption] = useState<TokenOption>();
+  const tokenAddress = currentTokenOption?.tokenAddress;
   const [amount, setAmount] = useState("");
-  const [nativeAmount, setNativeAmount] = useState("");
-  const [recipient, setRecipient] = useState("");
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [sourceAmounts, setSourceAmounts] = useState<Record<string, string>>({});
+  const [catalogSources, setCatalogSources] = useState<SourceOption[]>([]);
   const isPerSource = config.amountMode === "per-source";
+  const activeClientRef = useRef(client);
+  activeClientRef.current = client;
+
+  const addSource = useCallback((source: SourceOption) => {
+    setCatalogSources((previous) => [...previous.filter((entry) => entry.id !== source.id), source]);
+    setSelectedSources((previous) => previous.includes(source.id) ? previous : [...previous, source.id]);
+  }, []);
 
   const setSourceAmount = useCallback((id: string, value: string) => {
     setSourceAmounts((prev) => ({ ...prev, [id]: value }));
@@ -146,21 +114,11 @@ export function useOperationForm({
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
   const [started, setStarted] = useState(false);
   const [resultHashes, setResultHashes] = useState<HashRecord[]>([]);
-  const [richResult, setRichResult] = useState<SwapResultData | BridgeResultData | null>(null);
+  const [richResult, setRichResult] = useState<SwapResultData | null>(null);
   const [marketUrl, setMarketUrl] = useState<string | undefined>();
   const [statusMessage, setStatusMessage] = useState("");
 
-  const tokenOptions = useMemo(
-    () => config.getTokenOptions(client, chainId),
-    [config, client, chainId],
-  );
-
-  useEffect(() => {
-    const found = tokenOptions.find((t) => t.symbol === tokenSymbol);
-    if (!found && tokenOptions.length > 0) {
-      setTokenSymbol(tokenOptions[0]!.symbol);
-    }
-  }, [tokenOptions, tokenSymbol]);
+  const tokenSymbol = currentTokenOption?.symbol ?? "";
 
   const balancesQuery = useQuery({
     queryKey: [config.balanceQueryKey],
@@ -181,48 +139,18 @@ export function useOperationForm({
     refetchOnWindowFocus: false,
   });
 
-  const allSourceOptions = useMemo(
-    () => flattenBalances(balancesQuery.data ?? []),
-    [balancesQuery.data],
-  );
-
   const sourceOptions = useMemo(
-    () =>
-      config.filterSources
-        ? config.filterSources(allSourceOptions, chainId, tokenSymbol)
-        : allSourceOptions,
-    [config, allSourceOptions, chainId, tokenSymbol],
+    () => [...new Map([
+      ...(isPerSource ? catalogSources : []),
+      ...flattenBalances(balancesQuery.data ?? []),
+    ].map((source) => [source.id, source])).values()],
+    [balancesQuery.data, catalogSources, isPerSource],
   );
-
-  const prevSourceIdsRef = useRef<string>("");
-  useEffect(() => {
-    if (!config.filterSources) return;
-    const currentIds = sourceOptions.map((s) => s.id).join(",");
-    if (prevSourceIdsRef.current && prevSourceIdsRef.current !== currentIds) {
-      setSelectedSources([]);
-    }
-    prevSourceIdsRef.current = currentIds;
-  }, [sourceOptions, config.filterSources]);
 
   const selectedSourceOptions =
     selectedSources.length > 0
       ? sourceOptions.filter((s) => selectedSources.includes(s.id))
       : [];
-
-  const fromSources =
-    selectedSources.length > 0
-      ? selectedSourceOptions.map((s) => ({
-          chainId: s.chainId,
-          tokenAddress: s.tokenAddress,
-        }))
-      : undefined;
-
-  const sourceChainIds =
-    selectedSources.length > 0
-      ? [...new Set(selectedSourceOptions.map((s) => s.chainId))]
-      : [];
-
-  const currentTokenOption = tokenOptions.find((t) => t.symbol === tokenSymbol);
 
   // Per-source (exact-in): each selected source carries its own input amount.
   // Amounts are scoped to the explicitly-selected ids, so a removed source's
@@ -248,37 +176,6 @@ export function useOperationForm({
       )
     : Number(amount) > 0;
 
-  const maxQuery = useQuery({
-    queryKey: ["max", config.id, chainId, tokenSymbol, selectedSources],
-    queryFn: async () => {
-      try {
-        const result = await config.calculateMax(
-          client!,
-          chainId,
-          tokenSymbol,
-          currentTokenOption?.tokenAddress,
-          sourceChainIds,
-          fromSources,
-        );
-        console.log(`[max-calc] ${config.id}:`, { chainId, tokenSymbol, sourceChainIds, result });
-        return result;
-      } catch (error) {
-        logError(`max-calc:${config.id}`, error);
-        console.error(`[max-calc] context:`, { chainId, tokenSymbol, sourceChainIds });
-        throw error;
-      }
-    },
-    enabled: false,
-    staleTime: 30_000,
-    retry: false,
-  });
-
-  const fetchMax = useCallback(() => {
-    if (ready && client && currentTokenOption) {
-      maxQuery.refetch();
-    }
-  }, [ready, client, currentTokenOption, maxQuery]);
-
   // Reset progress when form fields change
   const mutationRef = useRef<{ isPending: boolean }>({ isPending: false });
   useEffect(() => {
@@ -290,29 +187,27 @@ export function useOperationForm({
       setMarketUrl(undefined);
       setStatusMessage("");
     }
-  }, [chainId, tokenSymbol, amount, selectedSources, sourceAmounts]);
+  }, [chainId, tokenAddress, amount, selectedSources, sourceAmounts]);
 
   // Intent approval tracking — route to the correct state based on intent type
   const intentPending =
-    config.intentType === "swap" ? swapIntentPending
-    : config.intentType === "swapAndExecute" ? swapExecIntentPending
-    : config.intentType === "bridge" ? bridgeIntentPending
-    : bridgeExecIntentPending;
+    config.intentType === "swap" ? swapIntentPending : swapExecIntentPending;
   const intentApproved =
-    config.intentType === "swap" ? swapIntentApproved
-    : config.intentType === "swapAndExecute" ? swapExecIntentApproved
-    : config.intentType === "bridge" ? bridgeIntentApproved
-    : bridgeExecIntentApproved;
+    config.intentType === "swap" ? swapIntentApproved : swapExecIntentApproved;
   const clearIntent =
-    config.intentType === "swap" ? clearSwapIntent
-    : config.intentType === "swapAndExecute" ? clearSwapExecIntent
-    : config.intentType === "bridge" ? clearBridgeIntent
-    : clearBridgeExecIntent;
+    config.intentType === "swap" ? clearSwapIntent : clearSwapExecIntent;
 
   const intentWasPendingRef = useRef(false);
+  const intentResultRef = useRef<ProgressResult | null>(null);
   useEffect(() => {
     if (intentPending) {
       intentWasPendingRef.current = true;
+      // Approval clears the review model; retain the latest quote for the result panel first.
+      intentResultRef.current = extractProgressResult(
+        config.intentType,
+        swapIntent ?? null,
+        swapExecIntent ?? null,
+      );
     } else if (intentWasPendingRef.current && started && intentApproved) {
       intentWasPendingRef.current = false;
       setCompletedSteps((prev) => {
@@ -323,23 +218,21 @@ export function useOperationForm({
 
       // Snapshot the approved intent into the progress state so the success
       // screen can show the source breakdown + total fees.
-      const snapshot = extractProgressResult(
-        config.intentType,
-        swapIntent ?? null,
-        bridgeIntent ?? null,
-        swapExecIntent ?? null,
-        bridgeExecIntent ?? null,
-      );
+      const snapshot = intentResultRef.current;
       if (snapshot) progress.attachResult(snapshot);
+      intentResultRef.current = null;
     } else if (intentWasPendingRef.current && !intentPending) {
       intentWasPendingRef.current = false;
+      intentResultRef.current = null;
     }
-  }, [intentPending, started, intentApproved]);
+  }, [intentPending, started, intentApproved, swapIntent, swapExecIntent, config.intentType]);
 
   const mutation = useMutation({
+    onMutate: () => ({ client }),
     mutationFn: async () => {
-      if (!client) throw new Error("SDK not ready");
-      if (!address) throw new Error("Connect wallet first");
+      if (!ready || !client) throw new Error("SDK not ready");
+      if (!address && !isPerSource) throw new Error("Connect wallet first");
+      if (!currentTokenOption) throw new Error("Select a destination token");
       if (isPerSource) {
         if (!amountValid) throw new Error("Enter an amount for at least one asset");
       } else if (!amount.trim()) {
@@ -366,7 +259,9 @@ export function useOperationForm({
           : tokenSymbol;
       progress.openModal({
         sourceSymbols,
-        amount: isPerSource ? `$${formatAmount(sourcesTotalFiat, 2)}` : amount,
+        amount: isPerSource
+          ? sourcesTotalFiat > 0 ? `$${formatAmount(sourcesTotalFiat, 2)}` : "Quote preview"
+          : amount,
         destTokenSymbol: tokenSymbol,
         destTokenLogo: getTokenLogoUrl(tokenSymbol, currentTokenOption?.tokenAddress, chainId),
         destChainName,
@@ -380,30 +275,32 @@ export function useOperationForm({
         tokenSymbol,
         tokenAddress: currentTokenOption?.tokenAddress,
         amount,
-        nativeAmount,
-        recipient,
         sourceOptions,
         selectedSources,
         sourceAmounts,
         setCompletedSteps,
         setStatusMessage,
         handleProgressEvent: progress.handleEvent,
-        _onSwapIntent: onSwapIntent,
-        _onBridgeIntent: onBridgeIntent,
-        _onSwapExecIntent: onSwapExecIntent,
-        _onBridgeExecIntent: onBridgeExecIntent,
+        onSwapIntent: (data: Parameters<typeof onSwapIntent>[0]) => {
+          if (activeClientRef.current !== client) { data.deny(); return; }
+          return onSwapIntent(data);
+        },
+        onSwapExecIntent,
       };
 
       console.log(`[execute] ${config.id} starting:`, { chainId, tokenSymbol, amount, selectedSources });
       const result = await config.execute(ctx);
+      if (activeClientRef.current !== client) return result;
       console.log(`[execute] ${config.id} result:`, result);
 
+      progress.complete(result);
       setResultHashes(result.hashes);
       if (result.richResult) setRichResult(result.richResult);
       if (result.marketUrl) setMarketUrl(result.marketUrl);
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (_result, _variables, context) => {
+      if (context?.client !== activeClientRef.current) return;
       toast.success(`${config.hero.title} completed`);
       balancesQuery.refetch();
       // Card becomes editable after 3s; progress/badge stay until field edit
@@ -411,8 +308,8 @@ export function useOperationForm({
         setStatusMessage("");
       }, 3000);
     },
-    onError: (error) => {
-      logError(`execute:${config.id}`, error);
+    onError: (error, _variables, context) => {
+      if (context?.client !== activeClientRef.current) return;
       // Intent-hook denial happens BEFORE the progress modal is visible
       // (execution hasn't started yet) — close it cleanly so the user lands
       // back on the form. Other user-action errors (allowance, signature,
@@ -420,7 +317,7 @@ export function useOperationForm({
       // failure UI. Any non-user error renders the "failed" variant.
       const code = (error as { code?: string }).code;
       if (error instanceof UserActionError) {
-        if (code === "USER_INTENT_HOOK_DENIED") {
+        if (code === ERROR_CODES.USER_INTENT_HOOK_DENIED) {
           progress.closeModal();
         } else {
           progress.handleError(error, {
@@ -431,7 +328,10 @@ export function useOperationForm({
       } else {
         progress.handleError(error, { kind: "failed" });
       }
-      toast.error(getErrorMessage(error), { duration: 10000 });
+      if (code !== ERROR_CODES.USER_INTENT_HOOK_DENIED) {
+        logError(`execute:${config.id}`, error);
+        toast.error(getErrorMessage(error), { duration: 10000 });
+      }
       clearIntent();
       setStarted(false);
       setCompletedSteps(new Set());
@@ -444,12 +344,16 @@ export function useOperationForm({
 
   mutationRef.current = mutation;
 
+  useEffect(() => {
+    progress.closeModal();
+    mutation.reset();
+  }, [client, address]);
+
   const resetForm = useCallback(() => {
     setAmount("");
-    setNativeAmount("");
-    setRecipient("");
     setSelectedSources([]);
     setSourceAmounts({});
+    setCatalogSources([]);
     setCompletedSteps(new Set());
     setStarted(false);
     setResultHashes([]);
@@ -462,24 +366,20 @@ export function useOperationForm({
     chainOptions,
     chainId,
     setChainId,
-    tokenOptions,
+    currentTokenOption,
     tokenSymbol,
-    setTokenSymbol,
+    tokenAddress,
+    setCurrentTokenOption,
     amount,
     setAmount,
-    nativeAmount,
-    setNativeAmount,
-    recipient,
-    setRecipient,
     sourceOptions,
+    addSource,
     selectedSources,
     setSelectedSources,
     sourceAmounts,
     setSourceAmount,
     sourcesTotalFiat,
     amountValid,
-    maxQuery,
-    fetchMax,
     completedSteps,
     started,
     resultHashes,

@@ -1,4 +1,4 @@
-export type { NexusUtils } from './core/utils';
+export type { NexusUtils } from './client/utils';
 export {
   formatTokenBalance,
   formatTokenBalanceParts,
@@ -8,4 +8,4 @@ export {
   isValidAddress,
   parseUnits,
   truncateAddress,
-} from './core/utils';
+} from './client/utils';

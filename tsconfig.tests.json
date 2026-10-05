@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "es2024",
     "module": "esnext",
+    "jsx": "react-jsx",
     "lib": ["dom", "esnext"],
     "strict": true,
     "noImplicitReturns": true,
@@ -16,6 +17,6 @@
     "resolveJsonModule": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["tests/**/*", "src/**/*"],
+  "include": ["tests/**/*", "src/**/*", "example/browser/tests/**/*"],
   "exclude": ["dist", "node_modules"]
 }

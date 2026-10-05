@@ -44,17 +44,10 @@ vi.mock('@opentelemetry/api-logs', async () => {
   };
 });
 
-// Stub the platform helpers so they don't touch real window/localStorage in node.
+// Keep window location metadata deterministic for telemetry resources.
 vi.mock('../../src/services/platform', () => ({
-  cryptoGetRandomValues: vi.fn(async (bytes: Uint8Array) => {
-    bytes.fill(0);
-    return bytes;
-  }),
-  isBrowser: () => false,
   locationHost: () => 'test-host',
   locationOrigin: () => 'test-origin',
-  storageGetItem: vi.fn(() => 'cached-client-id'),
-  storageSetItem: vi.fn(),
 }));
 
 const networkConfig = {

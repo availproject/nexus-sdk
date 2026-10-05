@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { NavLink, useLocation, useNavigate } from "react-router";
+import { useState, type ReactNode } from "react";
+import { NavLink } from "react-router";
 import * as Dialog from "@radix-ui/react-dialog";
-import type { TokenBalance } from "@avail-project/nexus-core";
-import type { ChannelMode, NetworkMode, TabConfig } from "../lib/types";
+import type { NetworkMode, TabConfig, TokenBalance } from "../lib/types";
 import { BalancesModal } from "./BalancesModal";
 import { WalletButton } from "../wallet";
 
@@ -10,10 +9,6 @@ type AppShellProps = {
   children: ReactNode;
   network: NetworkMode;
   onSelectNetwork: (target: NetworkMode) => void;
-  channel: ChannelMode;
-  onSelectChannel: (target: ChannelMode) => void;
-  forceMayan: boolean;
-  onToggleForceMayan: () => void;
   mode: "dark" | "light";
   onToggleMode: () => void;
   tabs: TabConfig[];
@@ -22,7 +17,7 @@ type AppShellProps = {
   onRefreshBalances: () => void;
 };
 
-const NETWORK_OPTIONS: readonly NetworkMode[] = ["mainnet", "canary", "testnet"];
+const NETWORK_OPTIONS: readonly NetworkMode[] = ["mainnet", "canary"];
 
 function AvailLogo() {
   return (
@@ -55,10 +50,6 @@ export function AppShell({
   children,
   network,
   onSelectNetwork,
-  channel,
-  onSelectChannel,
-  forceMayan,
-  onToggleForceMayan,
   mode,
   onToggleMode,
   tabs,
@@ -68,30 +59,8 @@ export function AppShell({
 }: AppShellProps) {
   const [balancesOpen, setBalancesOpen] = useState(false);
   const [pendingNetwork, setPendingNetwork] = useState<NetworkMode | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const settingsRef = useRef<HTMLDivElement>(null);
-  const location = useLocation();
-  const navigate = useNavigate();
-  const isWide = location.pathname.startsWith("/stress-test");
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!settingsRef.current?.contains(e.target as Node)) setSettingsOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setSettingsOpen(false);
-    };
-    window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [settingsOpen]);
-
   return (
-    <div className={`app-frame${isWide ? " app-frame--wide" : ""}`}>
+    <div className="app-frame">
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -127,78 +96,6 @@ export function AppShell({
             })}
           </div>
           <span className="topbar-divider" />
-          <div className="settings-anchor" ref={settingsRef}>
-            <button
-              className={`ghost-button settings-trigger${settingsOpen ? " settings-trigger-open" : ""}${forceMayan || channel === "preview" ? " settings-trigger-flag" : ""}`}
-              type="button"
-              onClick={() => setSettingsOpen((value) => !value)}
-              title="Developer settings"
-              aria-label="Developer settings"
-              aria-haspopup="dialog"
-              aria-expanded={settingsOpen}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33h.05a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.05a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
-            </button>
-            {settingsOpen && (
-              <div className="settings-popover" role="dialog" aria-label="Developer settings">
-                <div className="settings-popover-header">Dev settings</div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-label="Preview chains"
-                  aria-checked={channel === "preview"}
-                  onClick={() => onSelectChannel(channel === "preview" ? "stable" : "preview")}
-                  className="settings-row"
-                  data-checked={channel === "preview" ? "true" : "false"}
-                >
-                  <span className="settings-row-text">
-                    <span className="settings-row-label">Preview chains</span>
-                    <span className="settings-row-hint">
-                      Include chains still in preview. Off uses stable chains only.
-                    </span>
-                  </span>
-                  <span className="switch" aria-hidden>
-                    <span className="switch-thumb" />
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={forceMayan}
-                  onClick={onToggleForceMayan}
-                  className="settings-row"
-                  data-checked={forceMayan ? "true" : "false"}
-                >
-                  <span className="settings-row-text">
-                    <span className="settings-row-label">Force Mayan</span>
-                    <span className="settings-row-hint">
-                      Route every bridge through Mayan instead of the threshold check.
-                    </span>
-                  </span>
-                  <span className="switch" aria-hidden>
-                    <span className="switch-thumb" />
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
-          <span className="topbar-divider" />
-          {network === "testnet" && (
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => navigate("/stress-test")}
-              title="Stress test"
-              aria-label="Stress test"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-            </button>
-          )}
           <button
             className="ghost-button"
             type="button"

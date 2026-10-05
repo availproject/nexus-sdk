@@ -11,8 +11,6 @@
   ],
   "scripts": {
     "build": "rollup -c",
-    "stress": "npm --prefix packages/tools run stress --",
-    "stress:help": "npm --prefix packages/tools run stress:help",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "coverage:compare": "node scripts/compare-lcov-branches.mjs",
@@ -61,7 +59,6 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@avail-project/nexus-types": "0.1.25",
     "@opentelemetry/api-logs": "0.219.0",
     "@opentelemetry/exporter-logs-otlp-http": "0.219.0",
     "@opentelemetry/resources": "2.8.0",
@@ -80,14 +77,13 @@
     "@rollup/plugin-node-resolve": "15.3.1",
     "@rollup/plugin-terser": "1.0.0",
     "@rollup/plugin-typescript": "12.3.0",
+    "@types/node": "22.20.4",
     "@vitest/coverage-v8": "4.1.11",
-    "hardhat": "3.7.0",
     "husky": "9.1.7",
     "lint-staged": "16.2.7",
     "release-it": "21.0.1",
     "rollup": "4.61.1",
     "rollup-plugin-dts": "6.3.0",
-    "solc": "0.8.35",
     "typescript": "5.9.3",
     "vitest": "4.1.11"
   },

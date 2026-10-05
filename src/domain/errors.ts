@@ -17,33 +17,32 @@ export type ErrorCategory =
  * Hand-maintained literal union covering every async public method on `NexusClient`
  * plus exported async utility helpers that have their own OTel boundary.
  *
- * Drift is enforced by `tests/core/operation-name-drift.test-d.ts` — that test will
+ * Drift is enforced by `tests/client/operation-name-drift.test-d.ts` — that test will
  * fail to compile if the client surface diverges from this list.
  *
- * `src/domain/` cannot import from `src/core/` (package layering), so the union is
- * hand-maintained here; the drift test lives in the assembly layer (`tests/core/`)
+ * `src/domain/` cannot import from `src/client/` (package layering), so the union is
+ * hand-maintained here; the drift test lives in the assembly layer (`tests/client/`)
  * where it can import both sides.
  */
 export type OperationName =
   // NexusClient async methods
   | 'initialize'
-  | 'bridge'
-  | 'bridgeAndTransfer'
-  | 'simulateBridge'
-  | 'simulateBridgeAndTransfer'
   | 'listIntents'
   | 'execute'
   | 'simulateExecute'
-  | 'bridgeAndExecute'
-  | 'simulateBridgeAndExecute'
-  | 'getBalancesForBridge'
+  | 'getBalances'
   | 'getBalancesForSwap'
   | 'swapWithExactIn'
   | 'swapWithExactOut'
   | 'swapAndExecute'
-  | 'calculateMaxForSwap'
-  | 'calculateMaxForBridge'
   | 'setEVMProvider'
+  | 'getSupportedChainsForRoute'
+  | 'getTokens'
+  | 'getToken'
+  | 'getTokensByChain'
+  | 'getAvailableSourceTokens'
+  | 'getAvailableDestinationTokens'
+  | 'confirmRouteExists'
   // exported utility helpers (rev 10)
   | 'getCoinbaseRates'
   | 'getSupportedChains';
@@ -54,7 +53,14 @@ export type UserActionService = 'wallet' | 'hook';
 export type SimulationService = 'rpc';
 export type ExecutionService = 'wallet' | 'rpc';
 export type BackendService = 'middleware';
-export type ExternalServiceService = 'lifi' | 'bebop' | 'zerox' | 'mystic' | 'relay' | 'coinbase';
+export type ExternalServiceService =
+  | 'lifi'
+  | 'bebop'
+  | 'fibrous'
+  | 'zerox'
+  | 'mystic'
+  | 'relay'
+  | 'coinbase';
 /**
  * Maps a category literal to its allowed `service` values. Used by `ErrorContext<C>`
  * and the wrap helpers so TypeScript rejects mismatches (e.g. `service: 'middleware'`
@@ -113,7 +119,7 @@ export type ErrorContext<C extends ErrorCategory = ErrorCategory> =
  *   _reverted — wallet/chain revert
  *   _denied   — user rejection
  *   _exceeded — threshold crossed
- *   (none)    — terminal state, not a failure (e.g. fee_grant_requested)
+ *   (none)    — named condition or terminal state (e.g. insufficient_balance, fee_grant_requested)
  *
  * Every code's `category` segment must match the subclass it's thrown on.
  */
@@ -121,7 +127,6 @@ export const ERROR_CODES = {
   // ── validation/* — caller input / preconditions (no service)
   INVALID_INPUT: 'validation/invalid_input',
   INVALID_ADDRESS_LENGTH: 'validation/invalid_address_length',
-  INVALID_VALUES_ALLOWANCE_HOOK: 'validation/invalid_allowance_hook',
   CHAIN_NOT_FOUND: 'validation/chain_not_found',
   CHAIN_DATA_NOT_FOUND: 'validation/chain_data_not_found',
   ASSET_NOT_FOUND: 'validation/asset_not_found',
@@ -131,7 +136,6 @@ export const ERROR_CODES = {
   ENVIRONMENT_NOT_KNOWN: 'validation/environment_not_known',
   INSUFFICIENT_BALANCE: 'validation/insufficient_balance',
   NO_BALANCE_FOR_ADDRESS: 'validation/no_balance_for_address',
-  AMOUNT_TOO_LOW: 'validation/amount_too_low',
   SDK_NOT_INITIALIZED: 'validation/sdk_not_initialized',
   SDK_INIT_STATE_NOT_EXPECTED: 'validation/sdk_init_state_unexpected',
   WALLET_NOT_CONNECTED: 'validation/wallet_not_connected',
@@ -144,7 +148,6 @@ export const ERROR_CODES = {
   USER_ALLOWANCE_APPROVAL_DENIED: 'user_action/allowance_approval_denied',
   USER_SIWE_SIGNATURE_DENIED: 'user_action/siwe_signature_denied',
   USER_TX_SEND_DENIED: 'user_action/tx_send_denied',
-  USER_EPHEMERAL_KEY_DENIED: 'user_action/ephemeral_key_denied',
   USER_ACTION_ERROR: 'user_action/error',
 
   // ── simulation/* — pre-execution simulate boundary (service='rpc')
@@ -187,21 +190,51 @@ export const ERROR_CODES = {
   BACKEND_RFF_FETCH_FAILED: 'backend/rff_fetch_failed',
   BACKEND_RFF_LIST_FAILED: 'backend/rff_list_failed',
   BACKEND_RFF_STATUS_FAILED: 'backend/rff_status_fetch_failed',
-  BACKEND_APPROVALS_WS_FAILED: 'backend/approvals_ws_failed',
   BACKEND_SBC_SUBMIT_FAILED: 'backend/sbc_submit_failed',
+  BACKEND_APPROVALS_WS_FAILED: 'backend/approvals_ws_failed',
   BACKEND_SIMULATION_BUNDLE_FAILED: 'backend/simulation_bundle_failed',
   BACKEND_FULFILMENT_WAIT_TIMEOUT: 'backend/fulfilment_wait_timeout',
   BACKEND_FEE_GRANT_REQUESTED: 'backend/fee_grant_requested',
   BACKEND_REPORT_MAYAN_TX_FAILED: 'backend/report_mayan_tx_failed',
   BACKEND_GET_QUOTE_FAILED: 'backend/get_quote_failed',
   BACKEND_GET_MAYAN_QUOTE_FAILED: 'backend/get_mayan_quote_failed',
-  BACKEND_GET_BRIDGE_PROVIDER_FAILED: 'backend/get_bridge_provider_failed',
-  BACKEND_SAFE_GET_ADDRESS_FAILED: 'backend/safe_get_address_failed',
-  BACKEND_SAFE_ENSURE_FAILED: 'backend/safe_ensure_failed',
-  BACKEND_SAFE_EXECUTE_FAILED: 'backend/safe_execute_failed',
+  BACKEND_INVALID_REQUEST: 'backend/invalid_request',
+  BACKEND_UNAUTHORIZED: 'backend/unauthorized',
+  BACKEND_NOT_FOUND: 'backend/not_found',
+  BACKEND_RATE_LIMITED: 'backend/rate_limited',
+  BACKEND_CONFIGURATION_ERROR: 'backend/configuration_error',
+  BACKEND_UPSTREAM_ERROR: 'backend/upstream_error',
+  BACKEND_UPSTREAM_TIMEOUT: 'backend/upstream_timeout',
+  BACKEND_NETWORK_ERROR: 'backend/network_error',
+  BACKEND_RPC_ERROR: 'backend/rpc_error',
+  BACKEND_SIMULATION_FAILED: 'backend/simulation_failed',
+  BACKEND_TRANSACTION_REVERTED: 'backend/transaction_reverted',
+  BACKEND_QUOTE_UNAVAILABLE: 'backend/quote_unavailable',
+  BACKEND_PRICE_UNAVAILABLE: 'backend/price_unavailable',
+  BACKEND_GAS_UNAVAILABLE: 'backend/gas_unavailable',
+  BACKEND_CHAIN_NOT_SUPPORTED: 'backend/chain_not_supported',
+  BACKEND_TOKEN_NOT_SUPPORTED: 'backend/token_not_supported',
+  BACKEND_NO_ROUTABLE_SOURCE: 'backend/no_routable_source',
+  BACKEND_INTENT_REFUSED: 'backend/intent_refused',
+  BACKEND_PROVIDER_UNAVAILABLE: 'backend/provider_unavailable',
+  BACKEND_NO_PROVIDERS_ENABLED: 'backend/no_providers_enabled',
+  BACKEND_INSUFFICIENT_BALANCE: 'backend/insufficient_balance',
+  BACKEND_INSUFFICIENT_APPROVAL_GAS: 'backend/insufficient_approval_gas',
+  BACKEND_SAME_CHAIN_GAS_DROP_UNSUPPORTED: 'backend/same_chain_gas_drop_unsupported',
+  BACKEND_QUOTE_PRICE_OUTLIER: 'backend/quote_price_outlier',
+  BACKEND_INPUT_BELOW_DEPOSIT_FEE: 'backend/input_below_deposit_fee',
+  BACKEND_GAS_DROP_TOO_SMALL: 'backend/gas_drop_too_small',
+  BACKEND_REQUEST_EXPIRED: 'backend/request_expired',
+  BACKEND_INVALID_INTENT_SIGNATURE: 'backend/invalid_intent_signature',
+  BACKEND_MISSING_INTENT_SIGNATURE: 'backend/missing_intent_signature',
+  BACKEND_INVALID_PERMIT_SIGNATURE: 'backend/invalid_permit_signature',
+  BACKEND_PERMIT_WITHOUT_SOURCE: 'backend/permit_without_source',
+  BACKEND_PERMIT_NOT_SPONSORABLE: 'backend/permit_not_sponsorable',
+  BACKEND_INSUFFICIENT_ALLOWANCE: 'backend/insufficient_allowance',
+  BACKEND_PERMIT_RELAY_FAILED: 'backend/permit_relay_failed',
   BACKEND_ERROR: 'backend/error',
 
-  // ── external_service/* — third-party dependencies
+  // ── external_service/* — third-party deps (service='lifi'|'bebop'|'fibrous'|'coinbase')
   EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED: 'external_service/destination_swap_quote_failed',
   EXTERNAL_SOURCE_SWAP_QUOTE_FAILED: 'external_service/source_swap_quote_failed',
   EXTERNAL_SWAP_ROUTE_BUILD_FAILED: 'external_service/swap_route_build_failed',
@@ -212,7 +245,6 @@ export const ERROR_CODES = {
   // ── internal/* — true SDK invariants (no service)
   INTERNAL_ERROR: 'internal/error',
   INTERNAL_UNKNOWN_SIGNATURE: 'internal/unknown_signature',
-  INTERNAL_EPHEMERAL_KEY_DERIVE_FAILED: 'internal/ephemeral_key_derive_failed',
   INTERNAL_DESTINATION_REQUEST_HASH_NOT_FOUND: 'internal/destination_request_hash_not_found',
 } as const;
 
@@ -310,6 +342,14 @@ export const formatUnknownError = (error: unknown): string => {
       : error.shortMessage;
   }
   if (error instanceof Error) return error.message;
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message;
+  }
   return String(error);
 };
 
@@ -367,28 +407,10 @@ export const Errors = {
       context: toContext(opts),
     }),
 
-  simulation: (msg: string, opts: WrapOpts<SimulationService>): SimulationError =>
-    new SimulationError(ERROR_CODES.SIMULATION_ERROR, msg, {
-      details: opts.details,
-      context: toContext(opts),
-    }),
-
-  externalService: (msg: string, opts: WrapOpts<ExternalServiceService>): ExternalServiceError =>
-    new ExternalServiceError(ERROR_CODES.EXTERNAL_SERVICE_ERROR, msg, {
-      details: opts.details,
-      context: toContext(opts),
-    }),
-
   // ── validation/* named factories
   sdkNotInitialized: (): ValidationError =>
     new ValidationError(ERROR_CODES.SDK_NOT_INITIALIZED, 'SDK is not initialized()', {
       context: {},
-    }),
-
-  sdkInitStateNotExpected: (state: string): ValidationError =>
-    new ValidationError(ERROR_CODES.SDK_INIT_STATE_NOT_EXPECTED, 'Unexpected init SDK state', {
-      context: {},
-      details: { state },
     }),
 
   environmentNotSupported: (environment: string): ValidationError =>
@@ -397,40 +419,11 @@ export const Errors = {
       details: { environment },
     }),
 
-  environmentNotKnown: (): ValidationError =>
-    new ValidationError(ERROR_CODES.ENVIRONMENT_NOT_KNOWN, 'Environment not known/mapped', {
-      context: {},
-    }),
-
-  invalidAllowance: (expected: number, got: number): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.INVALID_VALUES_ALLOWANCE_HOOK,
-      'Invalid allowance values passed. The length of allowances should equal input lengths.',
-      {
-        context: {},
-        details: { expectedLength: expected, receivedLength: got, source: 'onAllowance:allow()' },
-      }
-    ),
-
   chainNotFound: (chainId: number | bigint): ValidationError =>
     new ValidationError(ERROR_CODES.CHAIN_NOT_FOUND, `Chain not found: ${chainId}`, {
       context: { chainId },
       details: { chainId: chainId.toString() },
     }),
-
-  chainDataNotFound: (chainId: number | bigint): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.CHAIN_DATA_NOT_FOUND,
-      `Chain data not found for chain: ${chainId}`,
-      { context: { chainId }, details: { chainId: chainId.toString() } }
-    ),
-
-  assetNotFound: (tokenSymbol: string): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.ASSET_NOT_FOUND,
-      `Asset not found in UserAssets: ${tokenSymbol}`,
-      { context: {}, details: { tokenSymbol } }
-    ),
 
   tokenNotSupported: (
     address?: string,
@@ -439,14 +432,9 @@ export const Errors = {
   ): ValidationError =>
     new ValidationError(
       ERROR_CODES.TOKEN_NOT_SUPPORTED,
-      `Token/Asset with address ${address} is not supported on chain ${chainId}.\n${additionalMessage}`,
+      `Token/Asset with address ${address} is not supported on chain ${chainId}.${additionalMessage ? `\n${additionalMessage}` : ''}`,
       { context: {}, details: { address, chainId } }
     ),
-
-  universeNotSupported: (): ValidationError =>
-    new ValidationError(ERROR_CODES.UNIVERSE_NOT_SUPPORTED, 'Universe not supported', {
-      context: {},
-    }),
 
   tokenNotFound: (symbol: string, chainId: number): ValidationError =>
     new ValidationError(
@@ -454,15 +442,6 @@ export const Errors = {
       `Token with symbol ${symbol} not found on chain ${chainId}`,
       { context: { chainId }, details: { symbol, chainId } }
     ),
-
-  insufficientBalance: (msg?: string): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.INSUFFICIENT_BALANCE,
-      `Insufficient balance to proceed. ${msg ?? ''}`.trim(),
-      { context: {} }
-    ),
-  amountTooLow: (msg: string): ValidationError =>
-    new ValidationError(ERROR_CODES.AMOUNT_TOO_LOW, msg, { context: {} }),
 
   walletNotConnected: (walletType: string): ValidationError =>
     new ValidationError(
@@ -478,22 +457,11 @@ export const Errors = {
       { context: { chainId } }
     ),
 
-  invalidInput: (msg: string): ValidationError =>
-    new ValidationError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`, { context: {} }),
-
-  invalidAddressLength: (addressType: string, additionalMessage?: string): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.INVALID_ADDRESS_LENGTH,
-      `Invalid ${addressType} address length: ${additionalMessage ?? ''}`,
-      { context: {}, details: { type: addressType } }
-    ),
-
-  noBalanceForAddress: (address: Hex): ValidationError =>
-    new ValidationError(
-      ERROR_CODES.NO_BALANCE_FOR_ADDRESS,
-      `no balance found for user: ${address}`,
-      { context: {}, details: { address } }
-    ),
+  invalidInput: (msg: string, details?: Record<string, unknown>): ValidationError =>
+    new ValidationError(ERROR_CODES.INVALID_INPUT, `input invalid: ${msg}`, {
+      context: {},
+      details,
+    }),
 
   // ── user_action/* named factories
   userDeniedIntent: (): UserActionError =>
@@ -515,22 +483,10 @@ export const Errors = {
       { context: { service: 'wallet' } }
     ),
 
-  userRejectedSIWESignature: (): UserActionError =>
-    new UserActionError(ERROR_CODES.USER_SIWE_SIGNATURE_DENIED, 'User rejected SIWE signature.', {
-      context: { service: 'wallet' },
-    }),
-
   userRejectedTxSend: (): UserActionError =>
     new UserActionError(ERROR_CODES.USER_TX_SEND_DENIED, 'User rejected sending the transaction.', {
       context: { service: 'wallet' },
     }),
-
-  userRejectedEphemeralKey: (): UserActionError =>
-    new UserActionError(
-      ERROR_CODES.USER_EPHEMERAL_KEY_DENIED,
-      'User rejected signing the ephemeral-key derivation message.',
-      { context: { service: 'wallet' } }
-    ),
 
   // ── backend/* named factories
   liquidityTimeout: (requestHash: Hex): BackendError =>
@@ -543,19 +499,7 @@ export const Errors = {
       }
     ),
 
-  feeGrantRequested: (): BackendError =>
-    new BackendError(ERROR_CODES.BACKEND_FEE_GRANT_REQUESTED, 'Fee grant requested.', {
-      context: { service: 'middleware' },
-    }),
-
   // ── execution/* named factories
-  transactionTimeout: (timeout: number): ExecutionError =>
-    new ExecutionError(
-      ERROR_CODES.EXEC_TX_RECEIPT_WAIT_TIMEOUT,
-      `⏰ Timeout: Transaction not confirmed within ${timeout}s`,
-      { context: { service: 'rpc' }, details: { timeout } }
-    ),
-
   transactionReverted: (txHash: string): ExecutionError =>
     new ExecutionError(ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED, `Transaction reverted: ${txHash}`, {
       context: { service: 'rpc' },
@@ -569,74 +513,7 @@ export const Errors = {
       { context: { service: 'rpc' }, details: { result } }
     ),
 
-  slippageExceeded: (expected: string, actual: string): ExecutionError =>
-    new ExecutionError(
-      ERROR_CODES.EXEC_SLIPPAGE_EXCEEDED,
-      `Slippage exceeded: expected ${expected}, got ${actual}`,
-      { context: { service: 'wallet' }, details: { expected, actual } }
-    ),
-
-  // ── external_service/* named factories
-  quoteFailed: (message: string, service: ExternalServiceService = 'lifi'): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_DESTINATION_SWAP_QUOTE_FAILED,
-      `Quote failed: ${message}`,
-      { context: { service } }
-    ),
-
-  swapQuoteFailed: (msg: string, service: ExternalServiceService = 'lifi'): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_SOURCE_SWAP_QUOTE_FAILED,
-      `Swap quote failed: ${msg}`,
-      { context: { service } }
-    ),
-
-  swapRouteFailed: (msg: string, service: ExternalServiceService = 'lifi'): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_SWAP_ROUTE_BUILD_FAILED,
-      `Swap route failed: ${msg}`,
-      { context: { service } }
-    ),
-
-  ratesChangedBeyondTolerance: (
-    rate: number | bigint,
-    tolerance: string,
-    service: ExternalServiceService = 'lifi'
-  ): ExternalServiceError =>
-    new ExternalServiceError(
-      ERROR_CODES.EXTERNAL_RATES_DRIFT_EXCEEDED,
-      `Rates changed beyond tolerance. Rate: ${rate}\nTolerance:${tolerance}`,
-      { context: { service }, details: { rate: rate.toString(), tolerance } }
-    ),
-
-  // ── simulation/* named factories
-  simulationFailed: (msg: string): SimulationError =>
-    new SimulationError(ERROR_CODES.SIMULATION_ETH_CALL_FAILED, `simulation failed: ${msg}`, {
-      context: { service: 'rpc' },
-    }),
-
   // ── internal/* named factories
-  unknownSignatureType: (): InternalError =>
-    new InternalError(ERROR_CODES.INTERNAL_UNKNOWN_SIGNATURE, 'Unknown signature type', {
-      context: {},
-    }),
-
-  ephemeralKeyFailed: (cause?: unknown): InternalError =>
-    new InternalError(
-      ERROR_CODES.INTERNAL_EPHEMERAL_KEY_DERIVE_FAILED,
-      cause !== undefined
-        ? `Ephemeral key derivation failed: ${formatUnknownError(cause)}`
-        : 'Ephemeral key derivation failed',
-      { context: {} }
-    ),
-
-  destinationRequestHashNotFound: (): InternalError =>
-    new InternalError(
-      ERROR_CODES.INTERNAL_DESTINATION_REQUEST_HASH_NOT_FOUND,
-      'requestHash not found for destination',
-      { context: {} }
-    ),
-
   internal: (msg: string, details?: Record<string, unknown>): InternalError =>
     new InternalError(ERROR_CODES.INTERNAL_ERROR, `Internal error: ${msg}`, {
       context: {},

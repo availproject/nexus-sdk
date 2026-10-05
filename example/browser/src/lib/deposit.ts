@@ -1,8 +1,9 @@
 import { encodeFunctionData, type Hex } from "viem";
+import type { SwapExecuteParams } from "@avail-project/nexus-core";
 import type { ChainOption, TokenOption } from "./types";
 
 /* ── Deposit protocols across chains ─────────────────────────────────
- * Lending-deposit targets for the Swap & Execute / Bridge & Execute tabs.
+ * Lending-deposit targets for the Swap & Execute tab.
  * Ported from avail-deposit's deposit config. Each chain pins one protocol
  * (an Aave V3 deployment or a fork) plus the assets it accepts. */
 
@@ -18,7 +19,7 @@ export type DepositProtocolMeta = {
 type DepositAsset = {
   symbol: string;
   label: string;
-  /** Token the swap/bridge lands in (the SDK `toTokenAddress`). */
+  /** Token the swap lands in (the SDK `toTokenAddress`). */
   swapTokenAddress: Hex;
   /** Token the pool's `supply`/approval expects. Absent for native. */
   protocolAsset?: Hex;
@@ -252,17 +253,7 @@ const DEPOSIT_CONFIG: Record<number, DepositChainConfig> = {
 
 export type EncodedDepositExecute = {
   marketUrl: string;
-  execute: {
-    to: Hex;
-    data: Hex;
-    value: bigint;
-    gas: bigint;
-    tokenApproval?: {
-      toTokenAddress: Hex;
-      amount: bigint;
-      spender: Hex;
-    };
-  };
+  execute: SwapExecuteParams;
 };
 
 export function getDepositSupportedChains(): ChainOption[] {
@@ -317,7 +308,7 @@ export function buildDepositExecute(params: {
           args: [config.poolAddress, params.wallet, 0],
         }),
         value: params.amount,
-        gas: 420_000n,
+        gas: 420_000n, // Raw estimate; the SDK applies chain-specific buffers.
       },
     };
   }
@@ -335,7 +326,7 @@ export function buildDepositExecute(params: {
         args: [asset.protocolAsset, params.amount, params.wallet, 0],
       }),
       value: 0n,
-      gas: 350_000n,
+      gas: 350_000n, // Approval gas is accounted for separately by the SDK.
       tokenApproval: {
         toTokenAddress: asset.protocolAsset,
         amount: params.amount,

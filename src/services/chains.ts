@@ -1,27 +1,22 @@
-import type { ChainListType, SupportedChainsAndTokensResult } from '../domain';
-import { ZERO_ADDRESS } from '../domain';
+import type { IntentChainMetadata, IntentProvider } from '../intent/types';
 
-export const getSupportedChainsFromChainList = (
-  chainList: ChainListType
-): SupportedChainsAndTokensResult => {
-  return chainList.chains.map((chain) => {
-    return {
-      id: chain.id,
-      logo: chain.custom.icon,
-      name: chain.name,
-      // `swapSupported === false` is the only disqualifier (mirrors route.ts / balances.ts);
-      // an absent flag means the chain is swap-capable.
-      swapSupported: chain.swapSupported !== false,
-      tokens: [
-        ...chain.custom.knownTokens,
-        {
-          contractAddress: ZERO_ADDRESS,
-          decimals: chain.nativeCurrency.decimals,
-          logo: chain.nativeCurrency.logo,
-          name: chain.nativeCurrency.name,
-          symbol: chain.nativeCurrency.symbol,
-        },
-      ],
-    };
-  });
-};
+export type SupportedChainsResult = Array<{
+  id: number;
+  logo: string;
+  name: string;
+  swapSupported: boolean;
+  asSource: IntentProvider[];
+  asDestination: IntentProvider[];
+}>;
+
+export const getSupportedChainsFromCatalog = (
+  catalog: IntentChainMetadata[]
+): SupportedChainsResult =>
+  catalog.map((chain) => ({
+    id: chain.id,
+    logo: chain.logo ?? '',
+    name: chain.name,
+    swapSupported: chain.swapSupported !== false,
+    asSource: chain.asSource ?? chain.providers,
+    asDestination: chain.asDestination ?? chain.providers,
+  }));

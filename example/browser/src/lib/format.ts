@@ -1,5 +1,10 @@
 import { D } from "./math";
 
+export function formatUsd(value: string): string {
+  const amount = D(value);
+  return amount.gt(0) && amount.lt("0.01") ? "<$0.01" : `$${amount.toFixed(2)}`;
+}
+
 export function formatAmount(
   value: string | number,
   decimals = 6,
@@ -24,9 +29,4 @@ export function truncateAddress(
 ): string {
   if (address.length <= start + end + 2) return address;
   return `${address.slice(0, start)}…${address.slice(-end)}`;
-}
-
-export function truncateHash(hash: string): string {
-  if (hash.length <= 18) return hash;
-  return `${hash.slice(0, 10)}…${hash.slice(-8)}`;
 }

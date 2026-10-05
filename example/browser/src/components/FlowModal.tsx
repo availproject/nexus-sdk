@@ -10,9 +10,7 @@ import type {
 } from "../lib/types";
 import type {
   SwapIntentViewModel,
-  BridgeIntentViewModel,
   SwapAndExecuteIntentViewModel,
-  BridgeAndExecuteIntentViewModel,
 } from "../lib/nexus";
 import { AssetRowIcon } from "./AssetRow";
 import {
@@ -24,9 +22,8 @@ import {
   TokenIcon,
 } from "./IntentModalShell";
 import { getTokenLogoUrl } from "../lib/logos";
-import { D, pctOf, sum, toFixed, trimDp } from "../lib/math";
-import { truncateAddress } from "../lib/format";
-import { getVisibleExecutionSteps } from "../lib/execution-progress";
+import { D, pctOf } from "../lib/math";
+import { formatUsd, truncateAddress } from "../lib/format";
 
 /* ── Shared icons ─────────────────────────────────────────────────── */
 
@@ -86,9 +83,7 @@ function ExternalLinkIcon() {
 
 const OP_TITLES: Record<ExecutionProgressState["operationType"], string> = {
   swap: "Swap",
-  bridge: "Bridge",
   swapAndExecute: "Swap & Execute",
-  bridgeAndExecute: "Bridge & Execute",
 };
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
@@ -121,7 +116,7 @@ function formatAgo(now: number, completedAt?: number): string | null {
 function statusSubText(step: NormalizedStep): string | undefined {
   if (step.state === "active") {
     // "Approve in wallet" only fires when the SDK explicitly tells us the
-    // wallet popup is showing — server-side / on-chain steps (bridge_fill,
+    // wallet popup is showing — server-side / on-chain steps (intent_fulfillment,
     // vault_deposit, destination_swap, request_submission, …) just say
     // "Working…" instead of misleading the user about a wallet prompt.
     if (step.rawState === "wallet_prompted") return "Approve in wallet";
@@ -132,6 +127,7 @@ function statusSubText(step: NormalizedStep): string | undefined {
 }
 
 function formatImpact(value: number): string {
+  if (value === 0) return "0.0000%";
   const abs = Math.abs(value);
   return `${value > 0 ? "-" : "+"}${abs.toFixed(4)}%`;
 }
@@ -147,13 +143,11 @@ function impactClass(value: number): string {
 function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
   const srcTotal = D(intent.sourcesTotal);
   const destValue = D(intent.destination.value);
-  const buffer = D(intent.buffer);
-  const srcExclBuffer = srcTotal.minus(buffer);
-  const impactExclBuffer = srcExclBuffer.gt(0)
-    ? srcExclBuffer.minus(destValue).div(srcExclBuffer).mul(100).toNumber()
-    : 0;
-  const impactInclBuffer = srcTotal.gt(0)
+  const expectedDifference = srcTotal.gt(0)
     ? srcTotal.minus(destValue).div(srcTotal).mul(100).toNumber()
+    : 0;
+  const minimumDifference = srcTotal.gt(0)
+    ? srcTotal.minus(intent.destination.minValue).div(srcTotal).mul(100).toNumber()
     : 0;
 
   const sourceSymbols = [...new Set(intent.sources.map((s) => s.tokenSymbol))].join(", ");
@@ -162,14 +156,13 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
     chainName: s.chainName,
     chainLogo: s.chainLogo,
   }));
-  const totalFees = toFixed(sum([intent.buffer, intent.bridgeFees?.total]), 2);
 
   return (
     <>
       <IntentHero
         amount={fmt(intent.destination.amount)}
         symbol={intent.destination.tokenSymbol}
-        usd={`$${intent.destination.value}`}
+        usd={formatUsd(intent.destination.value)}
         chainName={intent.destination.chainName}
         chainLogo={intent.destination.chainLogo ?? undefined}
         tokenLogo={getTokenLogoUrl(
@@ -180,7 +173,7 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
         chip={{
           chains: chainDotItems,
           countLabel: `${intent.sources.length} source${intent.sources.length === 1 ? "" : "s"}`,
-          totalLabel: `$${intent.sourcesTotal}`,
+          totalLabel: formatUsd(intent.sourcesTotal),
         }}
       />
 
@@ -188,7 +181,7 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
         <LineItemAccordion
           label="You Swap"
           sub={sourceSymbols}
-          value={`$${intent.sourcesTotal}`}
+          value={formatUsd(intent.sourcesTotal)}
         >
           {intent.sources.map((s, i) => (
             <SourceRow key={`${s.chainId}-${s.tokenSymbol}-${i}`} s={s} />
@@ -198,40 +191,44 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
         <LineItemAccordion
           size="secondary"
           label="Total Fees"
-          sub="Buffer & bridge fees"
-          value={`$${totalFees}`}
+          sub="Quoted intent fees"
+          value={formatUsd(intent.fees.total)}
         >
-          <LineItem size="secondary" label="Buffer" value={`$${intent.buffer}`} />
-          <LineItem size="secondary" label="Bridge fees" value={`$${intent.bridgeFees?.total ?? "0.00"}`} />
+          <LineItem size="secondary" label="Deposit" value={formatUsd(intent.fees.deposit)} />
+          <LineItem size="secondary" label="Fulfillment" value={formatUsd(intent.fees.fulfillment)} />
+          <LineItem size="secondary" label="Protocol"
+            sub={intent.fees.fulfillmentIncludesProviderFees ? "Included in fulfillment" : undefined}
+            value={formatUsd(intent.fees.protocol)} />
+          <LineItem size="secondary" label="Solver"
+            sub={intent.fees.fulfillmentIncludesProviderFees ? "Included in fulfillment" : undefined}
+            value={formatUsd(intent.fees.solver)} />
         </LineItemAccordion>
 
         <LineItemAccordion
           size="secondary"
-          label="Price Impact"
-          sub={`${intent.destination.tokenSymbol} · estimated`}
+          label="Value Difference"
+          sub="Source vs. destination USD, including fees"
           value={
-            <span className={impactClass(impactExclBuffer)}>{formatImpact(impactExclBuffer)}</span>
+            <span className={impactClass(expectedDifference)}>{formatImpact(expectedDifference)}</span>
           }
         >
           <LineItem
             size="secondary"
             label="Expected"
-            sub="excl. buffer"
-            value={<span className={impactClass(impactExclBuffer)}>{formatImpact(impactExclBuffer)}</span>}
+            value={<span className={impactClass(expectedDifference)}>{formatImpact(expectedDifference)}</span>}
           />
           <LineItem
             size="secondary"
-            label="Worst case"
-            sub="incl. buffer"
-            value={<span className={impactClass(impactInclBuffer)}>{formatImpact(impactInclBuffer)}</span>}
+            label="At minimum received"
+            value={<span className={impactClass(minimumDifference)}>{formatImpact(minimumDifference)}</span>}
           />
         </LineItemAccordion>
 
         <LineItem
           size="secondary"
-          label="Swap Buffer"
-          sub="Temporary buffer collected to ensure successful swaps. Excess funds are refunded."
-          value={`$${intent.buffer}`}
+          label="Minimum received"
+          value={`${fmt(intent.destination.minAmount)} ${intent.destination.tokenSymbol}`}
+          valueSub={formatUsd(intent.destination.minValue)}
         />
 
         {intent.destination.gas && (
@@ -248,81 +245,26 @@ function SwapIntentBody({ intent }: { intent: SwapIntentViewModel }) {
   );
 }
 
-function BridgeIntentBody({ intent }: { intent: BridgeIntentViewModel }) {
-  const sourceSymbols = [...new Set(intent.sources.map((s) => s.tokenSymbol))].join(", ");
-  const chainDotItems = intent.sources.map((s) => ({
-    chainId: s.chainId,
-    chainName: s.chainName,
-    chainLogo: s.chainLogo,
-  }));
-
-  return (
-    <>
-      <IntentHero
-        amount={fmt(intent.destination.amount)}
-        symbol={intent.token.symbol}
-        chainName={intent.destination.chainName}
-        chainLogo={intent.destination.chainLogo ?? undefined}
-        tokenLogo={intent.token.logo ?? getTokenLogoUrl(intent.token.symbol)}
-        chip={{
-          chains: chainDotItems,
-          countLabel: `${intent.sources.length} source${intent.sources.length === 1 ? "" : "s"}`,
-          totalLabel: `$${intent.sourcesTotal}`,
-        }}
-      />
-
-      <div className="intent-line-items">
-        <LineItemAccordion label="You Send" sub={sourceSymbols} value={`$${intent.sourcesTotal}`}>
-          {intent.sources.map((s, i) => (
-            <SourceRow key={`${s.chainId}-${s.tokenSymbol}-${i}`} s={s} />
-          ))}
-        </LineItemAccordion>
-
-        <LineItemAccordion size="secondary" label="Total Fees" sub="Network & protocol" value={`$${intent.fees.total}`}>
-          <LineItem size="secondary" label="CA Gas" value={`$${intent.fees.caGas}`} />
-          <LineItem size="secondary" label="Protocol" value={`$${intent.fees.protocol}`} />
-          <LineItem size="secondary" label="Solver" value={`$${intent.fees.solver}`} />
-        </LineItemAccordion>
-
-        {D(intent.destination.nativeAmount).gt(0) && (
-          <LineItem
-            size="secondary"
-            label="Destination gas"
-            sub="Native token on destination"
-            value={`${fmt(intent.destination.nativeAmount)} ${intent.destination.nativeToken.symbol}`}
-            valueSub={`≈ ${fmt(intent.destination.nativeAmountInToken)} ${intent.token.symbol}`}
-          />
-        )}
-      </div>
-    </>
-  );
-}
-
 function CompositeIntentBody({
   intent,
   actionLabel,
 }: {
-  intent: SwapAndExecuteIntentViewModel | BridgeAndExecuteIntentViewModel;
+  intent: SwapAndExecuteIntentViewModel;
   actionLabel?: string;
 }) {
   const exec = intent.executeRequirement;
-  const hasFunding = intent.kind === "swapAndExecute" ? intent.swapRequired : intent.bridgeRequired;
-  const shortfall = hasFunding
-    ? intent.kind === "swapAndExecute" && intent.swapRequired
-      ? intent.shortfall
-      : intent.kind === "bridgeAndExecute" && intent.bridgeRequired
-        ? intent.shortfall
-        : undefined
-    : undefined;
+  const hasFunding = intent.swapRequired;
+  const shortfall = hasFunding ? intent.shortfall : undefined;
 
   const tokenSufficient = !hasFunding || !shortfall || D(shortfall.token.amount).lte(0);
   const gasSufficient = !hasFunding || !shortfall || D(shortfall.gas.amount).lte(0);
   const allSufficient = tokenSufficient && gasSufficient;
 
   const tokenPct = pctOf(intent.available.token.amount, exec.token.amount);
-  const gasPct = pctOf(intent.available.gas.amount, exec.gas.amount);
+  const nativeRequired = D(exec.gas.amount).plus(exec.nativeValue?.amount ?? "0");
+  const gasPct = pctOf(nativeRequired.minus(shortfall?.gas.amount ?? "0").toFixed(), nativeRequired.toFixed());
 
-  const funding = intent.kind === "swapAndExecute" ? intent.swap : intent.bridge;
+  const funding = intent.swap;
   const showFunding = !allSufficient && funding !== undefined;
 
   return (
@@ -330,7 +272,7 @@ function CompositeIntentBody({
       <IntentHero
         amount={fmt(exec.token.amount)}
         symbol={exec.token.symbol}
-        usd={`$${exec.token.value}`}
+        usd={exec.token.value === undefined ? undefined : formatUsd(exec.token.value)}
         chainName={exec.chainName}
         chainLogo={exec.chainLogo ?? undefined}
         tokenLogo={getTokenLogoUrl(exec.token.symbol)}
@@ -362,7 +304,7 @@ function CompositeIntentBody({
 
         {showFunding && funding && (
           <LineItemAccordion
-            label={intent.kind === "swapAndExecute" ? "You Swap" : "You Send"}
+            label="You Swap"
             sub={[...new Set(funding.sources.map((s) => s.tokenSymbol))].join(", ")}
             value={`${funding.sources.length} source${funding.sources.length === 1 ? "" : "s"}`}
             defaultOpen
@@ -378,8 +320,18 @@ function CompositeIntentBody({
           label="Gas"
           sub="Execution gas on destination"
           value={`${fmt(exec.gas.amount)} ${exec.gas.symbol}`}
-          valueSub={`$${exec.gas.value}`}
+          valueSub={exec.gas.value === undefined ? undefined : formatUsd(exec.gas.value)}
         />
+
+        {exec.nativeValue && (
+          <LineItem
+            size="secondary"
+            label="Contract value"
+            sub="Native tokens sent with the execution"
+            value={`${fmt(exec.nativeValue.amount)} ${exec.gas.symbol}`}
+            valueSub={exec.nativeValue.value === undefined ? undefined : formatUsd(exec.nativeValue.value)}
+          />
+        )}
 
         {exec.tokenApproval && (
           <LineItem
@@ -390,33 +342,13 @@ function CompositeIntentBody({
           />
         )}
 
-        {showFunding && intent.kind === "swapAndExecute" && intent.swap && (
-          <>
-            {intent.swap.buffer && (
-              <LineItem
-                size="secondary"
-                label="Swap Buffer"
-                sub="Temporary buffer collected to ensure successful swaps. Excess funds are refunded."
-                value={`$${intent.swap.buffer}`}
-              />
-            )}
-            {intent.swap.bridgeFees && (
-              <LineItem
-                size="secondary"
-                label="Bridge Fees"
-                sub="Network & protocol"
-                value={`$${intent.swap.bridgeFees.total}`}
-              />
-            )}
-          </>
-        )}
-
-        {showFunding && intent.kind === "bridgeAndExecute" && intent.bridge && (
-          <LineItemAccordion size="secondary" label="Total Fees" sub="Network & protocol" value={`$${intent.bridge.fees.total}`}>
-            <LineItem size="secondary" label="CA Gas" value={`$${intent.bridge.fees.caGas}`} />
-            <LineItem size="secondary" label="Protocol" value={`$${intent.bridge.fees.protocol}`} />
-            <LineItem size="secondary" label="Solver" value={`$${intent.bridge.fees.solver}`} />
-          </LineItemAccordion>
+        {showFunding && intent.swap && (
+          <LineItem
+            size="secondary"
+            label="Intent Fees"
+            sub="Quoted swap fees"
+            value={formatUsd(intent.swap.fees.total)}
+          />
         )}
       </div>
     </>
@@ -443,7 +375,7 @@ function SourceRow({
         <span>
           {fmt(s.amount)} {s.tokenSymbol}
         </span>
-        {s.value !== undefined && <span className="intent-source-usd">${trimDp(s.value, 6)}</span>}
+        {s.value !== undefined && <span className="intent-source-usd">{formatUsd(s.value)}</span>}
       </span>
     </div>
   );
@@ -472,7 +404,15 @@ function ProgressHero({ header }: { header?: ProgressHeader }) {
   );
 }
 
-function SuccessHero({ header, duration }: { header?: ProgressHeader; duration: number | null }) {
+function SuccessHero({
+  header,
+  duration,
+  operationType,
+}: {
+  header?: ProgressHeader;
+  duration: number | null;
+  operationType: ExecutionProgressState["operationType"];
+}) {
   if (!header) return null;
   return (
     <div className="exec-success-hero">
@@ -482,7 +422,9 @@ function SuccessHero({ header, duration }: { header?: ProgressHeader; duration: 
           <CheckMark />
         </span>
       </div>
-      <div className="exec-success-eyebrow">You received</div>
+      <div className="exec-success-eyebrow">
+        {operationType === "swapAndExecute" ? "You deposited" : "You received"}
+      </div>
       <div className="exec-success-amount">
         <span className="exec-success-amount-value">{header.amount}</span>
         <span className="exec-success-amount-symbol">{header.destTokenSymbol}</span>
@@ -598,7 +540,7 @@ function ExecutingBody({
   const steps = state.steps;
   const activeStep = steps.find((s) => s.state === "active" || s.state === "submitted");
   const showToggle = activeStep !== undefined && steps.length > 1;
-  const visibleSteps = getVisibleExecutionSteps(steps, expanded);
+  const visibleSteps = !activeStep || expanded ? steps : [activeStep];
 
   return (
     <>
@@ -630,7 +572,7 @@ function SourcesAccordion({ result }: { result: ProgressResult }) {
       <div className="exec-result-row-head">
         <span className="exec-result-label">You Swapped</span>
         <div className="exec-result-value-block">
-          {result.sourcesTotal && <span className="exec-result-value">${result.sourcesTotal}</span>}
+          {result.sourcesTotal && <span className="exec-result-value">{formatUsd(result.sourcesTotal)}</span>}
           <Collapsible.Trigger asChild>
             <button type="button" className="exec-result-toggle">
               <span>{sources.length} asset{sources.length === 1 ? "" : "s"}</span>
@@ -658,7 +600,7 @@ function SourcesAccordion({ result }: { result: ProgressResult }) {
                 <span>
                   {s.amount} {s.tokenSymbol}
                 </span>
-                {s.value && <span className="exec-source-usd">${trimDp(s.value, 6)}</span>}
+                {s.value && <span className="exec-source-usd">{formatUsd(s.value)}</span>}
               </span>
             </div>
           ))}
@@ -707,7 +649,11 @@ function CompletedBody({
 }) {
   return (
     <>
-      <SuccessHero header={state.header} duration={duration} />
+      <SuccessHero
+        header={state.header}
+        duration={duration}
+        operationType={state.operationType}
+      />
       <div className="exec-steps">
         {state.result && <SourcesAccordion result={state.result} />}
         <StepsAccordion steps={state.steps} now={now} />
@@ -728,7 +674,7 @@ function CompletedBody({
         {state.result?.feesTotal && (
           <div className="exec-result-row">
             <span className="exec-result-label">Total Fees</span>
-            <span className="exec-result-value">${state.result.feesTotal}</span>
+            <span className="exec-result-value">{formatUsd(state.result.feesTotal)}</span>
           </div>
         )}
       </div>
@@ -781,15 +727,14 @@ export type FlowModalProps = {
   intentType: ExecutionProgressState["operationType"];
   intent:
     | SwapIntentViewModel
-    | BridgeIntentViewModel
     | SwapAndExecuteIntentViewModel
-    | BridgeAndExecuteIntentViewModel
     | null;
   intentPending: boolean;
   intentRefreshing: boolean;
   intentApproved: boolean;
   onApprove: () => void;
   onDeny: () => void;
+  onConnect?: () => void;
   actionLabel?: string;
   progressState: ExecutionProgressState | null;
   onDismissProgress: () => void;
@@ -803,6 +748,7 @@ export function FlowModal({
   intentApproved,
   onApprove,
   onDeny,
+  onConnect,
   actionLabel,
   progressState,
   onDismissProgress,
@@ -816,7 +762,7 @@ export function FlowModal({
     return () => clearInterval(id);
   }, []);
 
-  // Bridge the brief gap between user-clicked-Confirm and the SDK
+  // Cover the brief gap between user-clicked-Confirm and the SDK
   // transitioning to "executing". Without this, intentPending flips to false
   // (resetSwapIntent runs synchronously inside `approve…`) while
   // progressState.phase is still "awaiting_approval" / "intent_building" for
@@ -909,8 +855,14 @@ export function FlowModal({
 
   // Header title — operation name, plus a phase-appropriate suffix.
   const opTitle = OP_TITLES[intentType];
+  const swapQuote = intentType === "swap"
+    ? intent as SwapIntentViewModel | null
+    : (intent as SwapAndExecuteIntentViewModel | null)?.swap;
+  const cannotExecute = swapQuote?.execution.possible === false;
+  const needsConnection = swapQuote?.execution.possible === false
+    && swapQuote.execution.cause === "not-connected";
   const titleByPhase: Record<FlowPhase, string> = {
-    intent: `Confirm ${opTitle}`,
+    intent: needsConnection ? "Swap preview" : `Confirm ${opTitle}`,
     executing: opTitle,
     completed: `${opTitle} Complete`,
     failed: opTitle,
@@ -973,11 +925,17 @@ export function FlowModal({
           <div className={`flow-modal-body${fadingOut ? " flow-modal-body--fading" : ""}`}>
             {displayPhase === "intent" && intent && (
               <div className="intent-body-card">
+                {needsConnection ? (
+                  <p className="intent-notice receive-output-note">Connect your wallet, then review a fresh quote to swap.</p>
+                ) : cannotExecute && (
+                  <p className="intent-notice field-error" role="status">
+                    {swapQuote?.executionWarnings.map((warning) => warning.message).join(" ") || "This quote cannot be executed yet."}
+                  </p>
+                )}
                 {intentType === "swap" && <SwapIntentBody intent={intent as SwapIntentViewModel} />}
-                {intentType === "bridge" && <BridgeIntentBody intent={intent as BridgeIntentViewModel} />}
-                {(intentType === "swapAndExecute" || intentType === "bridgeAndExecute") && (
+                {intentType === "swapAndExecute" && (
                   <CompositeIntentBody
-                    intent={intent as SwapAndExecuteIntentViewModel | BridgeAndExecuteIntentViewModel}
+                    intent={intent as SwapAndExecuteIntentViewModel}
                     actionLabel={actionLabel}
                   />
                 )}
@@ -1006,10 +964,10 @@ export function FlowModal({
               <button
                 className="intent-button intent-button-primary"
                 type="button"
-                onClick={handleApprove}
-                disabled={intentRefreshing}
+                onClick={needsConnection ? onConnect : handleApprove}
+                disabled={intentRefreshing || (needsConnection ? !onConnect : cannotExecute)}
               >
-                Confirm
+                {needsConnection ? "Connect wallet" : "Confirm"}
               </button>
             )}
             {(displayPhase === "completed" || displayPhase === "failed") && (

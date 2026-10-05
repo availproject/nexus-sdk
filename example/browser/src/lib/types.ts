@@ -1,15 +1,29 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { NexusClient, TokenBalance } from "@avail-project/nexus-core";
+import type { IntentHookData, NexusClient, SwapAndExecuteHookData } from "@avail-project/nexus-core";
 
-export type NetworkMode = "mainnet" | "canary" | "testnet";
-export type ChannelMode = "stable" | "preview";
+export type NetworkMode = "mainnet" | "canary";
+
+/** UI-facing aggregate kept stable while the SDK exposes chain-level balances. */
+export type TokenBalance = {
+  name?: string;
+  symbol: string;
+  logo?: string;
+  balance: string;
+  value: string;
+  chainBalances: Array<{
+    balance: string;
+    verified: boolean;
+    value: string;
+    decimals: number;
+    contractAddress: `0x${string}`;
+    chain: { id: number; name: string; logo: string };
+  }>;
+};
 
 export type TabId =
   | "swap-exact-out"
   | "swap-exact-in"
-  | "swap-and-execute"
-  | "bridge"
-  | "bridge-and-execute";
+  | "swap-and-execute";
 
 export type ChainOption = { id: number; name: string };
 
@@ -21,14 +35,13 @@ export type TokenOption = {
 };
 
 export type Phase = { key: string; label: string; doneWhen: string };
-export type PhaseState = "idle" | "active" | "done";
 
 export type HashRecord = { label: string; value: string; href?: string };
 
 /* ── Rich result types for result cards ── */
 
 export type SwapRouteStep = {
-  type: "source" | "bridge" | "destination";
+  type: "source" | "intent" | "destination";
   chainId: number;
   chainName: string;
   tokenSymbol: string;
@@ -41,25 +54,13 @@ export type SwapResultData = {
   kind: "swap";
   route: SwapRouteStep[];
   intentExplorerUrl?: string;
-  summary: string; // e.g. "2 source swaps, 1 bridge, 1 destination swap"
-};
-
-export type BridgeLink = {
-  label: string;
-  href: string;
-  icon: "collection" | "fill" | "intent" | "execute" | "tx";
-};
-
-export type BridgeResultData = {
-  kind: "bridge";
-  summary: string; // e.g. "Bridged 100 USDC to Base"
-  links: BridgeLink[];
+  summary: string; // e.g. "2 source swaps, 1 intent, 1 destination swap"
 };
 
 export type OperationResult = {
   hashes: HashRecord[];
   marketUrl?: string;
-  richResult?: SwapResultData | BridgeResultData;
+  richResult?: SwapResultData;
 };
 
 export type HeroConfig = {
@@ -87,13 +88,11 @@ export type SourceOption = {
 
 export type ExecuteContext = {
   client: NexusClient;
-  address: `0x${string}`;
+  address?: `0x${string}`;
   chainId: number;
   tokenSymbol: string;
   tokenAddress: `0x${string}` | undefined;
   amount: string;
-  nativeAmount: string;
-  recipient: string;
   sourceOptions: SourceOption[];
   selectedSources: string[];
   /** Per-source input amounts (human-readable), keyed by SourceOption.id.
@@ -102,6 +101,8 @@ export type ExecuteContext = {
   setCompletedSteps: Dispatch<SetStateAction<Set<string>>>;
   setStatusMessage: Dispatch<SetStateAction<string>>;
   handleProgressEvent?: (event: unknown) => void;
+  onSwapIntent: (data: IntentHookData) => void | Promise<void>;
+  onSwapExecIntent: (data: SwapAndExecuteHookData) => void | Promise<void>;
 };
 
 /* ── Execution progress modal types ── */
@@ -163,7 +164,7 @@ export type ProgressPhase =
 export type ExecutionProgressState = {
   phase: ProgressPhase;
   steps: NormalizedStep[];
-  operationType: "swap" | "bridge" | "bridgeAndExecute" | "swapAndExecute";
+  operationType: "swap" | "swapAndExecute";
   resultLinks: Array<{ label: string; href: string }>;
   header?: ProgressHeader;
   result?: ProgressResult;
@@ -190,36 +191,20 @@ export type TabConfig = {
 
   /**
    * How the form collects the swap amount.
-   * - "single" (default): one global amount input (output amount for exact-out,
-   *   input amount for bridge) + multi-select sources without per-source amounts.
+   * - "single" (default): one output amount input for exact-out swaps
+   *   + multi-select sources without per-source amounts.
    * - "per-source": each selected source carries its own input amount (exact-in).
    */
   amountMode?: "single" | "per-source";
 
   getChainOptions: (client: NexusClient | null) => ChainOption[];
-  getTokenOptions: (client: NexusClient | null, chainId: number) => TokenOption[];
+  /** Fixed protocol tokens; swap tabs use the paginated catalog picker. */
+  getTokenOptions?: (client: NexusClient | null, chainId: number) => TokenOption[];
 
   balanceQueryKey: string;
   fetchBalances: (client: NexusClient) => Promise<TokenBalance[]>;
 
-  calculateMax: (
-    client: NexusClient,
-    chainId: number,
-    tokenSymbol: string,
-    tokenAddress: `0x${string}` | undefined,
-    sourceChainIds: number[],
-    fromSources:
-      | Array<{ chainId: number; tokenAddress: `0x${string}` }>
-      | undefined,
-  ) => Promise<{ maxAmount: string; symbol: string }>;
-
-  filterSources?: (
-    sources: SourceOption[],
-    chainId: number,
-    tokenSymbol: string,
-  ) => SourceOption[];
-
-  intentType: "swap" | "bridge" | "bridgeAndExecute" | "swapAndExecute";
+  intentType: "swap" | "swapAndExecute";
   phases: Phase[];
 
   execute: (ctx: ExecuteContext) => Promise<OperationResult>;

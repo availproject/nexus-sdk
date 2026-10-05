@@ -20,23 +20,17 @@ import {
   type Tx,
 } from '../domain';
 import { ERROR_CODES, Errors, ExecutionError, formatUnknownError } from '../domain/errors';
-import { isNativeAddress } from '../services/addresses';
-import { erc20GetAllowance } from '../services/allowance-utils';
 import { packERC20Approve, switchChain, waitForTxReceipt } from '../services/evm';
 import { createExplorerTxURL } from '../services/explorer';
 import { isUserRejectedRequest } from '../services/is-user-rejected-request';
 import { divDecimals } from '../services/math';
 import { runNonBlocking } from '../services/non-blocking';
-import { createExecuteApprovalStepId, createExecuteTransactionStepId } from '../services/step-ids';
-import { equalFold } from '../services/strings';
 import { withRootTimingSpan, withTimingSpan } from '../services/timing';
-import { getAtomicBatchSupport } from '../services/wallet-capabilities';
+import { erc20GetAllowance } from './allowance';
+import { createExecuteApprovalStepId, createExecuteTransactionStepId } from './step-ids';
+import { getAtomicBatchSupport } from './wallet-capabilities';
 
 export type { ExecuteFeeParams } from '../domain';
-
-export const isNativeExecuteToken = (chainList: ChainListType, chain: Chain, tokenAddress: Hex) =>
-  isNativeAddress(tokenAddress) ||
-  equalFold(tokenAddress, chainList.getNativeToken(chain.id).contractAddress);
 
 export type ExecuteApprovalContext = {
   token: PlanTokenMetadata;
@@ -218,8 +212,6 @@ export type ExecuteSendResult = {
   approvalHash: Hex | undefined;
 };
 
-export const toPlanTokenMetadata = (token: PlanTokenMetadata): PlanTokenMetadata => token;
-
 const toChainDisplay = (chain: Chain) => {
   const {
     id,
@@ -250,7 +242,7 @@ export const createExecutePlanContext = (input: {
         type: 'execute_approval',
         id: createExecuteApprovalStepId(input.chain.id, input.approval.token.contractAddress),
         chain: toChainDisplay(input.chain),
-        token: toPlanTokenMetadata(input.approval.token),
+        token: input.approval.token,
         spender: input.approval.spender,
         amount: divDecimals(input.approval.amount, input.approval.token.decimals).toFixed(),
         amountRaw: input.approval.amount.toString(),
@@ -511,10 +503,12 @@ export const sendExecuteTransactions = async (
         let receipt: TransactionReceipt | undefined;
         if (waitForReceipt) {
           const waitForReceiptCall = async () => {
-            const [r, error] = await waitForTxReceipt(txHash, options.dstPublicClient, {
-              confirmations: requiredConfirmations,
-              timeout: receiptTimeout,
-            });
+            const [r, error] = await waitForTxReceipt(
+              txHash,
+              options.dstPublicClient,
+              requiredConfirmations,
+              receiptTimeout
+            );
             if (error) throw error;
             return r;
           };
@@ -610,7 +604,7 @@ export const sendExecuteTransactions = async (
         explorerUrl: approvalExplorerUrl,
       });
 
-      await waitForTxReceipt(approvalHash, options.dstPublicClient)
+      await waitForTxReceipt(approvalHash, options.dstPublicClient, 1)
         .then(([, error]) => {
           if (error) throw error;
         })
@@ -695,10 +689,12 @@ export const sendExecuteTransactions = async (
     let receipt: TransactionReceipt | undefined;
     if (waitForReceipt) {
       const waitForReceiptCall = async () => {
-        const [r, error] = await waitForTxReceipt(txHash, options.dstPublicClient, {
-          confirmations: requiredConfirmations,
-          timeout: receiptTimeout,
-        });
+        const [r, error] = await waitForTxReceipt(
+          txHash,
+          options.dstPublicClient,
+          requiredConfirmations,
+          receiptTimeout
+        );
         if (error) throw error;
         return r;
       };

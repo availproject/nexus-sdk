@@ -1,2483 +1,368 @@
-# @avail-project/nexus-core
+# `@avail-project/nexus-core`
 
-A **headless TypeScript SDK** for **cross-chain operations**, **token bridging**, **swapping**, and **unified balance management**.
-Built for backends, CLIs, and custom UI integrations.
+Headless TypeScript SDK for cross-chain swaps, same-asset bridging, wallet balances, and EVM
+contract execution. Bring your own wallet connection and user interface.
 
----
-
-## Table of Contents
-
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Core Features](#core-features)
-- [Configuration](#configuration)
-- [API Reference](#api-reference)
-  - [Initialization & Lifecycle](#initialization--lifecycle)
-  - [Balance Operations](#balance-operations)
-  - [Bridge Operations](#bridge-operations)
-  - [Transfer Operations](#transfer-operations)
-  - [Execute Operations](#execute-operations)
-  - [Swap Operations](#swap-operations)
-  - [Intent Management](#intent-management)
-- [Hooks & Callbacks](#hooks--callbacks)
-  - [Displayed Intent Freshness](#displayed-intent-freshness)
-  - [Intent Hook](#intent-hook)
-  - [Allowance Hook](#allowance-hook)
-  - [Swap Intent Hook](#swap-intent-hook)
-  - [Event Callbacks](#event-callbacks)
-- [Events & Steps](#events--steps)
-  - [Bridge Steps](#bridge-steps)
-  - [Swap Steps](#swap-steps)
-  - [Building Progress UIs](#building-progress-uis)
-- [Error Handling](#error-handling)
-  - [NexusError Hierarchy](#nexuserror-hierarchy)
-  - [Error Codes Reference](#error-codes-reference)
-- [TypeScript Reference](#typescript-reference)
-- [Utilities](#utilities)
-- [Smart Optimizations](#smart-optimizations)
-- [Analytics](#analytics)
-- [Supported Networks & Tokens](#supported-networks--tokens)
-- [Common Pitfalls](#common-pitfalls)
-- [Resources](#resources)
-
----
-
-## Prerequisites
-
-- Node.js `>=18.0.0`
-- npm `>=9.0.0`
-
----
-
-## Installation
+## Install and connect
 
 ```bash
 npm install @avail-project/nexus-core
 ```
 
----
+```ts
+import { createNexusClient, type EthereumProvider } from '@avail-project/nexus-core';
+import { formatUnits, parseUnits } from '@avail-project/nexus-core/utils';
 
-## Quick Start
-
-```typescript
-import { createNexusClient } from '@avail-project/nexus-core';
-
-// 1) Create and initialize the client
-const client = createNexusClient({ network: 'mainnet' });
+const client = createNexusClient({ clientId: 'your-app-name', network: 'mainnet' });
 await client.initialize();
-await client.setEVMProvider(window.ethereum);
 
-// 2) Fetch balances
-const balances = await client.getBalancesForBridge();
-
-// 3) Execute a bridge
-const result = await client.bridge(
-  {
-    toTokenSymbol: 'USDC',
-    toAmountRaw: 100_000_000n, // 100 USDC (6 decimals)
-    toChainId: 137, // Polygon
-  },
-  {
-    onEvent: (event) => {
-      if (event.type === 'status') {
-        console.log('Bridge status:', event.status);
-      }
-      if (event.type === 'plan_preview') {
-        console.log('Bridge steps:', event.plan.steps);
-      }
-      if (event.type === 'plan_progress') {
-        console.log('Step progress:', event.step.type, event.state);
-      }
-    },
-    hooks: {
-      onIntent: ({ intent, allow, deny }) => {
-        if (userConfirmsIntent(intent)) allow();
-        else deny();
-      },
-      onAllowance: ({ sources, allow, deny }) => {
-        if (userConfirmsAllowance(sources)) allow(['min']);
-        else deny();
-      },
-    },
-  }
-);
-
-console.log('Bridge complete:', result.intentExplorerUrl);
+// Use the EIP-1193 provider supplied by your wallet connector.
+declare const provider: EthereumProvider;
+await client.setEVMProvider(provider);
 ```
 
----
-
-## Core Features
-
-- **Cross-chain bridging** — Move tokens seamlessly across 14+ chains
-- **Cross-chain swaps** — Execute EXACT_IN and EXACT_OUT swaps between any supported networks via LiFi, Bebop, 0x, Mystic, and Relay aggregators
-- **Unified balances** — Aggregate user assets and balances across all connected chains
-- **Contract execution** — Call smart contracts with automatic bridging or swap funding logic
-- **Composite operations** — Bridge + Execute or Swap + Execute, orchestrated as two sequenced operations (funding, then execution) — not a single atomic transaction
-- **Transaction simulation** — Estimate gas, fees, and required approvals before sending
-- **Real-time progress** — Typed event system for plan previews, step-by-step progress, and status updates
-- **Complete testnet coverage** — Full multi-chain test environment
-- **Comprehensive utilities** — Address, token, and chain helpers with tree-shakeable imports
-
----
-
-## Configuration
-
-### Client Configuration Options
-
-```typescript
-import { createNexusClient } from '@avail-project/nexus-core';
-
-const client = createNexusClient({
-  // Network: 'mainnet' | 'canary' | 'testnet' | custom NetworkConfig
-  network: 'mainnet',
-
-  // Chain release channel: 'stable' (default) or 'preview'.
-  // Preview includes stable chains plus chains still being completed.
-  channel: 'stable',
-
-  // Enable debug logging
-  debug: false,
-
-  // Optional: override the domain used in the ephemeral-key sign message and its
-  // localStorage cache key. Defaults to `window.location.host` in the browser
-  // and `'localhost'` in non-browser environments. Set this for mobile wallets
-  // or native shells where the auto-detected host isn't meaningful.
-  domain: 'app.example.com',
-
-  // Optional: pin every bridge (and the bridge leg of a swap) to the Mayan
-  // provider, skipping the middleware's provider-selection call and asserting
-  // the destination is Mayan-supported. Defaults to false (the SDK picks the
-  // provider per the usual threshold logic).
-  forceMayan: false,
-
-  // Analytics configuration (see Analytics section)
-  analytics: {
-    enabled: true,
-    privacy: {
-      anonymizeWallets: true,
-      anonymizeAmounts: true,
-    },
-  },
-
-  // Developer timing instrumentation
-  devTiming: {
-    enabled: true,
-    captureNetworkTiming: true,
-  },
-});
-```
-
-### Network Configuration
-
-```typescript
-// Mainnet
-const mainnetClient = createNexusClient({ network: 'mainnet' });
-
-// Canary (mainnet-class pre-production environment)
-const canaryClient = createNexusClient({ network: 'canary' });
-
-// Testnet
-const testnetClient = createNexusClient({ network: 'testnet' });
-
-// Custom network config (advanced)
-const customClient = createNexusClient({
-  network: {
-    MIDDLEWARE_HTTP_URL: 'https://your-middleware.example.com',
-    INTENT_EXPLORER_URL: 'https://your-explorer.example.com',
-    NETWORK_HINT: 'mainnet',
-  },
-});
-```
-
----
-
-## API Reference
-
-### Initialization & Lifecycle
-
-#### `initialize()`
-
-Fetches deployment data (chains, tokens, vault contracts) for the configured channel from the middleware. Must be called once before any chain-dependent operations.
-
-Set `channel: 'preview'` in `createNexusClient(...)` to include preview chains.
-The channel is independent of `network` and also applies to bridge balances,
-swap balances, and oracle prices. Create a new client to change channels.
-
-```typescript
-await client.initialize();
-```
-
-#### `setEVMProvider(provider)`
-
-Connect or update the EVM-compatible wallet provider.
-
-```typescript
-await client.setEVMProvider(window.ethereum);
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `provider` | `EthereumProvider` | EIP-1193 compatible provider (MetaMask, WalletConnect, etc.) |
-
-With an injected wallet you can pass `window.ethereum` directly. With a wallet library (wagmi, RainbowKit, Web3Modal, …), obtain the EIP-1193 provider from the active connector first — e.g. `const provider = await connector.getProvider()` — then pass it in. If your library's provider type doesn't structurally match `EthereumProvider`, cast it (`provider as EthereumProvider`); the SDK only uses the standard `request()` surface.
-
-#### `destroy()`
-
-Flush analytics and clean up resources. Call when the client is no longer needed.
-
-```typescript
-client.destroy();
-```
-
-#### `client.chainList`
-
-After `initialize()` resolves, `client.chainList` exposes the deployed chain catalogue for the configured channel. Use it for contract-aware lookups instead of bundling chain/token constants in your app.
-
-```typescript
-type ChainListType = {
-  chains: Chain[];                                              // chains in the configured channel
-  getChainByID(id: number): Chain;
-  getTokenInfoBySymbol(chainID: number, symbol: string): TokenInfo;
-  getTokenByAddress(chainID: number, address: Hex): TokenInfo;
-  getTokenByCurrencyId(chainID: number, currencyId: number): TokenInfo;
-  getNativeToken(chainID: number): TokenInfo;
-  getChainAndTokenFromSymbol(chainID: number, tokenSymbol: string): { chain: Chain; token: TokenInfo; isNativeToken: boolean };
-  getChainAndTokenByAddress(chainID: number, address: Hex): { chain: Chain; token: TokenInfo; isNativeToken: boolean };
-  getVaultContractAddress(chainID: number): Hex;
-};
-
-// `getChainByID` returns a Chain with name, native currency, and block-explorer info:
-const chain = client.chainList.getChainByID(8453);
-const explorerBase = chain.blockExplorers?.default?.url;   // e.g. build a tx link
-const nativeSymbol = chain.nativeCurrency.symbol;          // e.g. "ETH"
-
-// `getTokenInfoBySymbol` / `getTokenByAddress` return TokenInfo ({ contractAddress, symbol, decimals, logo, ... })
-const usdc = client.chainList.getTokenInfoBySymbol(8453, 'USDC');
-```
-
-`Chain` and `ChainListType` are exported types; `chain.blockExplorers` is optional (`{ default: { name, url } } | undefined`), so guard it before building explorer links.
-
-#### `client.hasEvmProvider`
-
-Boolean getter that returns `true` once `setEVMProvider()` has resolved. Useful for guarding methods that require a connected wallet.
-
-#### `isSupportedChain(chainId)`
-
-Returns `true` if the configured deployment knows about the given chain ID. Accepts a plain `number`.
-
-```typescript
-client.isSupportedChain(8453); // true
-```
-
-#### Client Lifecycle Notes
-
-The Nexus client is disposable and does not store durable user state. `initialize()` and `setEVMProvider()` are independent — `initialize()` only loads deployment data from the middleware, and `setEVMProvider()` only attaches a wallet. You can call them in either order, but most apps run both at startup so chain-dependent calls and wallet-dependent calls both work.
-
-`setEVMProvider()` short-circuits when called with the same provider instance it already holds, so it cannot be used to swap accounts on a single provider. **On account change, build a fresh client** and re-run `initialize()` + `setEVMProvider()`.
-
----
-
-### Balance Operations
-
-#### `getBalancesForBridge()`
-
-Get user's token balances across all supported chains for bridge operations.
-
-```typescript
-const assets = await client.getBalancesForBridge();
-
-// Returns TokenBalance[] - array of assets with per-chain breakdown
-// [
-//   {
-//     symbol: 'USDC',
-//     name: 'USDC',
-//     balance: '1250.50',          // Deprecated alias for usableBalance
-//     totalBalance: '1250.50',     // Total before native-token reservations
-//     usableBalance: '1250.50',    // Available after reservations
-//     value: '1250.50',            // USD value (string)
-//     decimals: 6,
-//     logo: 'https://...',
-//     currencyId: 1,
-//     chainBalances: [             // Per-chain balances
-//       {
-//         balance: '500.00',       // Deprecated alias for usableBalance
-//         totalBalance: '500.00',
-//         usableBalance: '500.00',
-//         value: '500.00',
-//         symbol: 'USDC',
-//         chain: { id: 1, name: 'Ethereum', logo: '...' },
-//         contractAddress: '0xa0b86991...',
-//         decimals: 6,
-//         universe: 0,
-//       },
-//       ...
-//     ],
-//   },
-//   // ... more assets (ETH, USDT, etc.)
-// ]
-```
-
-#### `getBalancesForSwap()`
-
-Get the user's swap-sourced balances across supported chains. This returns the same
-`TokenBalance[]` surface as `getBalancesForBridge()`, but it is sourced from the swap balance
-pipeline used by swap preflight and routing.
-
-```typescript
-const assets = await client.getBalancesForSwap();
-
-console.log(assets[0]?.symbol);
-console.log(assets[0]?.chainBalances);
-```
-
-Use this when you want to inspect the balances the SDK will consider for swap planning, while still
-working with the same grouped `TokenBalance[]` shape as bridge balances.
-
-**TokenBalance:**
-
-```typescript
-type TokenBalance = {
-  name: string;               // Display label (e.g. "USDC/USDM")
-  symbol: string;             // Majority symbol by chain count
-  logo: string;               // Token logo URL
-  /** @deprecated Use usableBalance instead. */
-  balance: string;            // Compatibility alias for usableBalance
-  totalBalance: string;       // Before native-token reservations
-  usableBalance: string;      // Available after reservations
-  value: string;              // USD value (string for precision)
-  decimals: number;
-  currencyId?: number;        // Required on BridgeTokenBalance
-  chainBalances: ChainBalance[];
-};
-
-type ChainBalance = {
-  /** @deprecated Use usableBalance instead. */
-  balance: string;            // Compatibility alias for usableBalance
-  totalBalance: string;       // Before native-token reservations
-  usableBalance: string;      // Available after reservations
-  value: string;              // USD value (string)
-  symbol: string;
-  chain: { id: number; name: string; logo: string };
-  contractAddress: `0x${string}`;
-  decimals: number;
-  universe: Universe;
-};
-```
-
-For ERC-20 balances and bridge balances, `totalBalance` and `usableBalance` currently match. Swap
-native-token balances can differ because `totalBalance` preserves the middleware balance while
-`usableBalance` excludes the gas reserve used by source selection.
-
----
-
-### Bridge Operations
-
-#### `bridge(params, options?)`
-
-Bridge tokens from one or more source chains to a destination chain.
-
-```typescript
-const result = await client.bridge(
-  {
-    toTokenSymbol: 'USDC',
-    toAmountRaw: 100_000_000n, // 100 USDC
-    toChainId: 137,
-    recipient: '0x...', // Optional: defaults to connected wallet
-    sources: [1, 42161], // Optional: auto-selected if omitted
-    toNativeAmountRaw: 100000n, // Optional: native token to supply on destination
-  },
-  {
-    onEvent: (event) => {
-      // Handle progress events
-    },
-    hooks: {
-      onIntent: ({ allow }) => allow(),
-      onAllowance: ({ allow }) => allow(['min']),
-    },
-    fillTimeoutMinutes: 2, // Default: 2
-  }
-);
-```
-
-**BridgeParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toTokenSymbol` | `string` | Yes | Token symbol: `'ETH'`, `'USDC'`, `'USDT'` |
-| `toAmountRaw` | `bigint` | Yes | Amount in smallest unit (e.g., 6 decimals for USDC) |
-| `toChainId` | `number` | Yes | Destination chain ID |
-| `recipient` | `Hex` | No | Recipient address (defaults to connected wallet) |
-| `sources` | `number[]` | No | Specific source chains to use (auto-selected if omitted) |
-| `toNativeAmountRaw` | `bigint` | No | Native token amount to supply on destination chain |
-
-**BridgeResult:**
-
-```typescript
-type BridgeResult = {
-  intentExplorerUrl: string;
-  sourceTxs: Array<{
-    chain: { id: number; name: string; logo: string };
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  }>;
-  intent: BridgeIntent;
-};
-```
-
-#### `simulateBridge(params)`
-
-Simulate a bridge operation to estimate fees and preview the intent.
-
-```typescript
-const simulation = await client.simulateBridge({
-  toTokenSymbol: 'USDC',
-  toAmountRaw: 100_000_000n,
-  toChainId: 137,
-});
-
-console.log('Estimated fees:', simulation.intent.fees);
-console.log('Source chains:', simulation.intent.selectedSources);
-```
-
-**BridgeSimulationResult:**
-
-```typescript
-type BridgeSimulationResult = {
-  intent: BridgeIntent;
-  token: TokenInfo;
-};
-```
-
----
-
-### Transfer Operations
-
-#### `bridgeAndTransfer(params, options?)`
-
-Bridge tokens and send to a specific recipient address.
-
-```typescript
-const result = await client.bridgeAndTransfer(
-  {
-    toTokenSymbol: 'USDC',
-    toAmountRaw: 50_000_000n, // 50 USDC
-    toChainId: 42161, // Arbitrum
-    recipient: '0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45',
-    sources: [1], // Optional
-  },
-  {
-    onEvent: (event) => console.log(event),
-    hooks: {
-      onIntent: ({ allow }) => allow(),
-      onAllowance: ({ allow }) => allow(['min']),
-    },
-  }
-);
-```
-
-**TransferParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toTokenSymbol` | `string` | Yes | Token symbol |
-| `toAmountRaw` | `bigint` | Yes | Amount in smallest unit |
-| `toChainId` | `number` | Yes | Destination chain ID |
-| `recipient` | `Hex` | Yes | Recipient address |
-| `sources` | `number[]` | No | Specific source chains |
-
-**TransferResult:**
-
-```typescript
-type TransferResult = {
-  approval?: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-  execute: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-} & (
-  | { bridgeSkipped: false; bridgeResult: BridgeResult }
-  | { bridgeSkipped: true; bridgeResult?: undefined }
-);
-```
-
-#### `simulateBridgeAndTransfer(params)`
-
-Simulate a bridge-and-transfer operation.
-
-```typescript
-const simulation = await client.simulateBridgeAndTransfer({
-  toTokenSymbol: 'USDC',
-  toAmountRaw: 50_000_000n,
-  toChainId: 42161,
-  recipient: '0x...',
-});
-```
-
----
-
-### Execute Operations
-
-#### `execute(params, options?)`
-
-Execute a smart contract call on a destination chain.
-
-```typescript
-const result = await client.execute(
-  {
-    toChainId: 1,
-    to: '0xContractAddress',
-    data: '0x...', // Encoded function call
-    value: 0n, // ETH value to send
-    tokenApproval: {
-      toTokenSymbol: 'USDC',
-      amount: 1_000_000n,
-      spender: '0xSpenderAddress',
-    },
-    // Advanced options
-    gasPrice: 'medium', // 'low' | 'medium' | 'high'
-    waitForReceipt: true,
-    receiptTimeout: 60000,
-    requiredConfirmations: 1,
-  }
-);
-```
-
-**ExecuteParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toChainId` | `number` | Yes | Target chain ID |
-| `to` | `Hex` | Yes | Contract address |
-| `data` | `Hex` | No | Encoded function call data |
-| `value` | `bigint` | No | Native token value to send |
-| `gas` | `bigint` | No | Gas limit override |
-| `gasPrice` | `'low' \| 'medium' \| 'high'` | No | Gas price tier strategy |
-| `tokenApproval` | `{ toTokenSymbol, amount, spender }` | No | Token approval to send before execution |
-| `enableTransactionPolling` | `boolean` | No | Poll for transaction inclusion via RPC instead of relying solely on receipt waiting |
-| `transactionTimeout` | `number` | No | Polling timeout in milliseconds |
-| `waitForReceipt` | `boolean` | No | Wait for transaction receipt before resolving |
-| `receiptTimeout` | `number` | No | Receipt-wait timeout in milliseconds |
-| `requiredConfirmations` | `number` | No | Required block confirmations before resolving |
-
-**ExecuteResult:**
-
-```typescript
-type ExecuteResult = {
-  approval?: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-  execute: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-  chainId: number;
-  confirmations?: number;
-  gasUsed?: string;
-  effectiveGasPrice?: string;
-};
-```
-
-#### `simulateExecute(params)`
-
-Simulate contract execution to estimate gas. The combined gas units and total cost include both the optional approval and the execute transaction.
-
-```typescript
-const simulation = await client.simulateExecute({
-  toChainId: 1,
-  to: '0x...',
-  data: '0x...',
-});
-
-console.log('Gas units (approval + execute):', simulation.estimatedGasUnits);
-console.log('Total cost (wei):', simulation.estimatedTotalCost);
-
-if (simulation.feeParams.type === 'eip1559') {
-  console.log('Max fee per gas:', simulation.feeParams.maxFeePerGas);
-  console.log('Max priority fee per gas:', simulation.feeParams.maxPriorityFeePerGas);
-} else {
-  console.log('Legacy gas price:', simulation.feeParams.gasPrice);
+`clientId` is a required, non-empty, stable application identifier. Catalog queries and exact-input
+quote previews need initialization but no wallet. Execution and wallet balances need a connected
+provider. Recreate the client after account/provider changes and call `client.destroy()` on cleanup.
+
+`mainnet` and `canary` use mainnet chains. `testnet` supports standalone execution only; intent
+operations and async intent catalog helpers reject with `ENVIRONMENT_NOT_SUPPORTED`.
+
+## Choose an operation
+
+| Need | Method |
+| --- | --- |
+| Receive a specified destination amount | `swapWithExactOut` |
+| Spend specified source amounts | `swapWithExactIn` |
+| Bridge the same asset across chains | Either swap method, with that asset's address on each chain |
+| Fund a destination contract call, then execute it | `swapAndExecute` |
+| Execute using funds already on the destination | `execute` |
+| Estimate a standalone contract call | `simulateExecute` |
+
+Amounts are raw `bigint` values. Resolve tokens by chain ID and contract address, then use their own
+decimals with `parseUnits` / `formatUnits`. Native-token addresses come from catalog metadata.
+Routes, providers, and fees are determined by the quote.
+
+## Discover assets and balances
+
+```ts
+const chains = client.getSupportedChains();
+const swapChains = chains.filter((chain) => chain.capabilities.intent);
+const executeChains = chains.filter((chain) => chain.capabilities.execute);
+
+const page = await client.getTokensByChain(8453, { symbol: 'USDC', limit: 25 });
+const baseUsdc = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+const destination = { chainId: 8453, tokenAddress: baseUsdc } as const;
+const token = await client.getToken(destination);
+const amountRaw = parseUnits('10', token.decimals);
+
+const balances = await client.getBalances();
+for (const balance of balances) {
+  console.log(balance.symbol, formatUnits(balance.balanceRaw, balance.decimals), balance.usable);
 }
 ```
 
-**ExecuteSimulation:**
+| Catalog method | Returns |
+| --- | --- |
+| `getSupportedChains()` | Cached chain metadata, without token lists |
+| `getTokens(query?)` | Token page across chains |
+| `getTokensByChain(chainId, query?)` | Token page on one chain |
+| `getToken({ chainId, tokenAddress })` | Exact token metadata |
+| `getAvailableSourceTokens(destination, selectedSources?, query?)` | Page of provider groups containing chains and tokens |
+| `getAvailableDestinationTokens(sources, query?)` | Page of chains containing destination tokens |
+| `confirmRouteExists(sources, destination)` | Catalog compatibility as a boolean |
+| `getSupportedChainsForRoute(constraints)` | Chain metadata matching route constraints |
 
-```typescript
-type ExecuteFeeParams =
-  | { type: 'eip1559'; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }
-  | { type: 'legacy'; gasPrice: bigint };
+Token queries accept `chainId`, `providers`, `name`, `symbol`, `contract`, `includeUnverified`,
+`offset`, and `limit`. Filters combine with AND. Pages default to offset 0 and limit 50; the maximum
+limit is 1000. Token pages default to verified assets; opt in with `includeUnverified: true`.
+Exact lookup can resolve unverified tokens. Balances include both; respect `verified` and `usable`.
 
-type ExecuteSimulation = {
-  feeParams: ExecuteFeeParams;
-  /** Combined gas units across approval (if required) and execution transaction. */
-  estimatedGasUnits: bigint;
-  /** Combined estimated cost across approval (if required) and execution transaction. */
-  estimatedTotalCost: bigint;
+Advance pagination by `page.offset + page.limit` while that is less than `page.total`. Compatibility
+pages count candidates before filtering, so an empty page does not mean there are no later matches.
+Reset the offset when filters or selections change. Keep selections outside the displayed page;
+returned tokens use `address`, while selections use `tokenAddress`. Deduplicate provider groups
+by chain ID plus address.
+
+For exact-input pickers, pass existing sources to `getAvailableSourceTokens` so all selections
+share one provider. Exact-output sources are alternatives: use
+`getAvailableSourceTokens(destination, [], query)`. `confirmRouteExists` requires a provider shared
+by all sources and does not guarantee a quote. Lookup failures reject separately from empty pages.
+
+Route constraints accept `sources`, `destinations`, `providers`, and `valueUsd`. Legs accept
+`chainId?`, `tokenAddress?`, and `amountRaw?`; amounts require both identity fields. Use the same
+fields on each leg of one side, and at most one sizing mode: source amounts, destination amounts,
+or USD value. Amounts must be non-negative. Token queries do not inherit route constraints.
+
+## Swap
+
+Exact output specifies what to receive. Omit `sources` (or pass `[]`) for automatic wallet funding;
+explicit sources restrict eligible chains and tokens. `toNativeAmountRaw` optionally requests
+destination native funds for gas.
+
+```ts
+const result = await client.swapWithExactOut({
+  toChainId: destination.chainId,
+  toTokenAddress: destination.tokenAddress,
+  toAmountRaw: amountRaw,
+  sources: [{ chainId: 1, tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48' }],
+});
+console.log(result.intentId, result.intentExplorerUrl);
+```
+
+Exact input specifies every source's positive raw amount. All sources and the destination must
+share one provider.
+
+```ts
+const source = {
+  chainId: 1,
+  tokenAddress: '0xA0b86991c6218b36c1d19d4a2e9eb0cE3606eB48',
+} as const;
+const sourceToken = await client.getToken(source);
+await client.swapWithExactIn({
+  sources: [{ ...source, amountRaw: parseUnits('5', sourceToken.decimals) }],
+  toChainId: destination.chainId,
+  toTokenAddress: destination.tokenAddress,
+});
+```
+
+## Review quotes and preview rates
+
+Pass `options.hooks.onIntent` to display a confirmation UI. The operation waits for `allow()` or
+`deny()`; returning from the callback alone does not accept it. Without a hook, quotes are accepted
+automatically. ERC-20 approvals use the minimum required amount; wallets may also prompt for
+approval signatures and source transactions.
+
+```ts
+import type { IntentHookData, SwapOperationOptions } from '@avail-project/nexus-core';
+
+declare function showReview(hook: IntentHookData): void;
+const options: SwapOperationOptions = {
+  hooks: { onIntent: showReview },
+  slippageBps: 50,
+  fillTimeoutMinutes: 2,
+  pollingIntervalMs: 2000,
 };
 ```
 
-#### `bridgeAndExecute(params, options?)`
+Pass `options` as the second argument to either swap method. These are the default option values.
+Slippage accepts an integer from 0 to 10000 or `'auto'`. The review UI uses `hook.quote`,
+`hook.execution`, `hook.allow()`, `hook.deny()`, and `await hook.refresh(sources?)`.
+Refresh returns a complete replacement quote; render that return value and read `hook.execution`
+again. Await refresh before allowing. Exact-input replacement sources must still carry token
+addresses and raw amounts. The quote is fixed after acceptance.
 
-Orchestrates **two distinct operations in sequence — not a single atomic transaction**:
+Quotes expose `input`, `output`, `output.minAmountRaw`, `fees`, `allowances`, `plan`,
+`sourceVerdicts`, and `expiresAt` (Unix seconds). Amounts ending in `Raw` are `bigint`;
+USD quote amounts are decimal strings. `quote.isExecutable` is a source-balance check;
+`quote.executionWarnings` describes any shortfalls.
 
-1. **Bridge (conditional)** — funds the shortfall on the destination chain. Automatically skipped when the destination already holds enough of the token (`result.bridgeSkipped === true`).
-2. **Execute + approval (execute always, approval optional)** — the contract call, preceded by an optional token approval, is **always** sent from the user's connected wallet on the destination chain.
+`swapWithExactIn` can preview rates before wallet connection. Its hook exposes:
 
-Because the two steps run one after the other, they succeed or fail independently. This is **not** atomic: if the execute fails after a bridge, the bridged funds remain in the user's wallet on the destination chain (they are not rolled back).
+```ts
+type QuoteExecution =
+  | { possible: true }
+  | { possible: false; cause: 'not-connected' | 'insufficient-balance' };
+```
 
-```typescript
-const result = await client.bridgeAndExecute(
-  {
-    toTokenSymbol: 'USDC',
-    toAmountRaw: 100_000_000n,
-    toChainId: 1,
-    sources: [8453], // Optional
-    execute: {
-      to: '0xDeFiProtocol',
-      data: '0x...', // deposit() call
-      tokenApproval: {
-        toTokenSymbol: 'USDC',
-        amount: 100_000_000n,
-        spender: '0xDeFiProtocol',
-      },
-    },
-  },
-  {
-    onEvent: (event) => {
-      if (event.type === 'status') {
-        // preparing | intent_building | awaiting_approval | executing | completed
+A preview remains disconnected throughout that operation. After connecting, start a new swap call
+and review its fresh quote. `allow()` on a disconnected preview rejects with `WALLET_NOT_CONNECTED`;
+`deny()` rejects as a user denial. There is no successful preview result. Without a hook, the quote
+event is emitted and the call rejects. Preview quotes can also fail if source approval gas is missing.
+Connected quotes with insufficient balances cannot execute; fund the wallet and refresh.
+Exact-output and composite operations require a wallet.
+
+## Progress and results
+
+`options.onEvent` receives `IntentEvent`:
+
+- `quote`: the current quote and plan.
+- `step`: `step`, `state` (`started`, `completed`, or `failed`), `committed`, and optional
+  `errorDetails`.
+- `status`: `intentId`, `status` (`created`, `deposited`, `fulfilled`, or `expired`),
+  `substatus`, and per-source `legs` with transaction links and errors.
+
+```ts
+import type { IntentEvent } from '@avail-project/nexus-core';
+
+const onEvent = (event: IntentEvent): void => {
+  switch (event.type) {
+    case 'quote':
+      console.log('Quote updated', event.quote.output, event.quote.fees, event.quote.plan.steps);
+      break;
+    case 'step':
+      console.log('Step progress', event.step.type, event.state);
+      if (event.state === 'failed') {
+        console.error(event.errorDetails?.message, event.errorDetails?.code);
+        // A committed attempt may still settle; check its status before retrying.
+        console.log('Intent committed', event.committed);
       }
-      if (event.type === 'plan_preview' || event.type === 'plan_confirmed') {
-        // event.plan.steps: typed composite bridge + execute plan
+      break;
+    case 'status':
+      console.log('Intent status', event.intentId, event.status, event.substatus);
+      for (const leg of event.legs) {
+        console.log('Source progress', leg.sourceIndex, leg.status, leg.txExplorerUrl, leg.error);
       }
-      if (event.type === 'plan_progress') {
-        // bridge or execute progress
-      }
-    },
-    onIntent: ({ allow, deny, refresh, intent }) => {
-      console.log('Bridge required:', intent.bridgeRequired);
-      // even if bridge is skipped, allow() still gates execution
-      allow();
-    },
+      break;
   }
-);
-
-if (result.bridgeSkipped) {
-  console.log('Used existing balance on destination');
-} else {
-  console.log('Bridge explorer:', result.bridgeResult.intentExplorerUrl);
-}
-```
-
-**BridgeAndExecuteParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toTokenSymbol` | `string` | Yes | Token to bridge |
-| `toAmountRaw` | `bigint` | Yes | Amount to bridge (raw integer units) |
-| `toChainId` | `number` | Yes | Destination chain |
-| `sources` | `number[]` | No | Specific source chains to draw from (auto-selected if omitted) |
-| `execute` | `Omit<ExecuteParams, 'toChainId'>` | Yes | Contract execution params (destination chain is inherited from the top-level `toChainId`) |
-| `enableTransactionPolling` | `boolean` | No | Poll for inclusion via RPC after submission |
-| `transactionTimeout` | `number` | No | Polling timeout in milliseconds |
-| `waitForReceipt` | `boolean` | No | Wait for the execute receipt before resolving |
-| `receiptTimeout` | `number` | No | Receipt-wait timeout in milliseconds |
-| `requiredConfirmations` | `number` | No | Required block confirmations before resolving |
-| `recentApprovalTxHash` | `string` | No | Hash of an approval submitted earlier in the same UI flow; lets the SDK skip a redundant approval |
-
-**BridgeAndExecuteResult:**
-
-```typescript
-type BridgeAndExecuteResult = {
-  approval?: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-  execute: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-} & (
-  | { bridgeSkipped: false; bridgeResult: BridgeResult }
-  | { bridgeSkipped: true; bridgeResult?: undefined }
-);
-```
-
-#### `simulateBridgeAndExecute(params)`
-
-Simulate bridge-and-execute to estimate costs.
-
-```typescript
-const simulation = await client.simulateBridgeAndExecute({
-  toTokenSymbol: 'USDC',
-  toAmountRaw: 100_000_000n,
-  toChainId: 1,
-  execute: { to: '0x...', data: '0x...' },
-});
-
-console.log('Bridge simulation:', simulation.bridgeSimulation);
-console.log('Execute simulation:', simulation.executeSimulation);
-```
-
-**BridgeAndExecuteSimulationResult:**
-
-```typescript
-type BridgeAndExecuteSimulationResult = {
-  bridgeSimulation: BridgeSimulationResult | null; // null if bridge not needed
-  executeSimulation: ExecuteSimulation;
-};
-```
-
----
-
-### Swap Operations
-
-Swap APIs use raw integer units (`bigint`) for on-chain amounts and token contract addresses (not symbols).
-
-On Arc mainnet (`5042`), destination USDC address `0x3600000000000000000000000000000000000000`
-is normalized to native USDC (`0x0000000000000000000000000000000000000000`) before routing.
-For Exact Out and `swapAndExecute`, supply `toAmountRaw` in that ERC-20 interface's **6 decimals**;
-the SDK converts it to native **18 decimals**. Explicit native destinations already use 18 decimals.
-Intents and `calculateMaxForSwap` results use the native address and decimals; reuse the returned
-address with `maxAmountRaw`. Source amounts and `execute.tokenApproval` retain their original units.
-
-#### `swapWithExactIn(input, options?)`
-
-Swap tokens specifying the exact input amount from explicit sources.
-
-```typescript
-const result = await client.swapWithExactIn(
-  {
-    sources: [
-      { chainId: 10, amountRaw: 1_000_000n, tokenAddress: '0xUSDC...' },
-      { chainId: 42161, amountRaw: 500_000n, tokenAddress: '0xUSDC...' },
-    ],
-    toChainId: 8453,
-    toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  },
-  {
-    onEvent: (event) => {
-      if (event.type === 'plan_progress') {
-        console.log('Swap progress:', event.step.type, event.state);
-      }
-    },
-    hooks: {
-      onIntent: ({ intent, allow }) => {
-        console.log('Swap intent:', intent);
-        allow();
-      },
-    },
-    slippageTolerance: 0.005, // 0.5% default
-  }
-);
-```
-
-**SwapExactInParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `sources` | `Array<{ chainId, tokenAddress, amountRaw? }>` | No | Source tokens and amounts (raw integer units). Omit to use all available holdings. |
-| `toChainId` | `number` | Yes | Destination chain |
-| `toTokenAddress` | `Hex` | Yes | Output token address |
-
-For Exact In, the approval-time `SwapIntent.destination.amount` and `.value` are the route's
-**expected output**, not its slippage-protected minimum. Expected source-swap output sizes the
-bridge, expected bridge delivery sizes the destination swap, and the destination quote's expected
-output reaches the existing intent fields. Executable calldata, approvals, aggregator selection,
-and retry guards still use protected quote amounts. At execution the SDK must read the COT that
-actually reached the destination wrapper and resize the destination swap before its first dispatch;
-the read/resize has three attempts total, then the swap fails with destination-step context and runs
-the normal stranded-COT cleanup. The resized quote must consume the complete measured COT balance;
-an under-consuming quote is rejected rather than returning settlement-token dust to the user.
-
-#### `swapWithExactOut(input, options?)`
-
-Swap tokens specifying the exact output amount desired.
-
-```typescript
-const result = await client.swapWithExactOut(
-  {
-    toChainId: 42161,
-    toTokenAddress: '0xaf88d065e77c8cc2239327c5edb3a432268e5831', // USDC on Arbitrum
-    toAmountRaw: 100_000_000n, // 100 USDC (6 decimals)
-    // Optional: also fund destination native gas
-    toNativeAmountRaw: 100_000_000_000_000n,
-    // Optional: restrict route planning to specific source tokens/chains
-    sources: [{ chainId: 8453, tokenAddress: '0x...' }],
-  },
-  {
-    onEvent: (event) => {
-      if (event.type === 'status') {
-        console.log('Swap status:', event.status);
-      }
-      if (event.type === 'plan_preview') {
-        console.log('Swap plan:', event.plan.steps);
-        console.log('Has bridge:', event.plan.hasBridge);
-        console.log('Has destination swap:', event.plan.hasDestinationSwap);
-      }
-    },
-    hooks: {
-      onIntent: ({ allow, deny, refresh, intent }) => {
-        console.log('Swap intent:', intent);
-        allow();
-      },
-    },
-  }
-);
-```
-
-**SwapExactOutParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `sources` | `Array<{ chainId, tokenAddress }>` | No | Restrict source chains/tokens for quote routing |
-| `toChainId` | `number` | Yes | Destination chain |
-| `toTokenAddress` | `Hex` | Yes | Output token address |
-| `toAmountRaw` | `bigint` | Yes | Exact output amount desired (raw integer units) |
-| `toNativeAmountRaw` | `bigint` | No | Optional native gas amount for destination chain |
-
-When eligible sources are already on the destination chain, EXACT_OUT can use the Path A fast path:
-one atomic, bridge-less batch swaps directly to the requested token and optional native gas amounts.
-It targets those raw outputs exactly, groups same-token funding into one authorization and transfer,
-and safely re-quotes stale or definitively reverted batches without blindly replaying ambiguous ones.
-
-**SwapResult:**
-
-```typescript
-type SwapResult = {
-  sourceSwaps: ChainSwap[];
-  intentExplorerUrl: string;
-  destinationSwap: ChainSwap | null;
-  intent: SwapIntent;
 };
 
-type ChainSwap = {
-  chainId: number;
-  swaps: Swap[];
-  txHash: Hex;
-};
-
-type Swap = {
-  inputAmount: bigint;
-  inputContract: Hex;
-  inputDecimals: number;
-  outputAmount: bigint;
-  outputContract: Hex;
-  outputDecimals: number;
-};
+const swapOptions: SwapOperationOptions = { ...options, onEvent };
 ```
 
-**Swap operation options:**
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `onEvent` | `(event: SwapEvent) => void` | Receive status, plan preview, and plan progress updates |
-| `hooks.onIntent` | `(data: OnIntentHookData) => void` | Review/approve the swap intent before execution |
-| `slippageTolerance` | `number` | Optional slippage override (default `0.005`, i.e. 0.5%) |
-
-#### `calculateMaxForSwap(input)`
-
-Calculate the maximum amount that can be swapped to a destination token across all available sources. Useful for populating a "Max" button before calling `swapWithExactIn`. Max calculation deliberately uses protected minimum outputs at every stage (with the existing safety haircut), while reusing the normal quote sequence without extra quote requests.
-
-```typescript
-const max = await client.calculateMaxForSwap({
-  toChainId: 8453,
-  toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
-});
-
-console.log(`Max swappable: ${max.maxAmount} ${max.symbol}`);
-console.log('Sources used:', max.sources);
-```
-
-You can also restrict which source chains/tokens are considered:
-
-```typescript
-const max = await client.calculateMaxForSwap({
-  toChainId: 8453,
-  toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-  sources: [
-    { chainId: 10, tokenAddress: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85' },
-  ],
-});
-```
-
-**SwapMaxParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toChainId` | `number` | Yes | Destination chain ID |
-| `toTokenAddress` | `Hex` | Yes | Output token address |
-| `sources` | `Array<{ chainId, tokenAddress }>` | No | Restrict which source tokens to consider |
-
-**SwapMaxResult:**
-
-```typescript
-type SwapMaxResult = {
-  toChainId: number;
-  toTokenAddress: Hex;
-  maxAmount: string;      // Human-readable decimal string
-  maxAmountRaw: bigint;   // Raw amount suitable for toAmount in swapWithExactOut
-  symbol: string;
-  decimals: number;
-  sources: {
-    chainId: number;
-    tokenAddress: Hex;
-    symbol: string;
-    decimals: number;
-    amount: string;       // Human-readable portion from this source
-  }[];
-};
-```
-
-#### `calculateMaxForBridge(input)`
-
-Calculate the maximum amount that can be bridged to a destination token across all same-currency holdings on other chains. Useful for populating a "Max" button before calling `bridge`.
-
-The max is sized against the provider the bridge will actually use: the summed bridge amount is checked against the Mayan threshold (the same decision the real bridge makes), and the receivable max is computed for that provider — Nexus backs out deposit/fulfillment/protocol fees, while Mayan sums the per-leg `minReceived`. No additional safety haircut is applied. The returned `provider` tells you which path was used.
-
-```typescript
-const max = await client.calculateMaxForBridge({
-  toChainId: 8453,
-  toTokenSymbol: 'USDC',
-});
-
-console.log(`Max bridgeable: ${max.maxAmount} ${max.symbol} via ${max.provider}`);
-console.log('Sources used:', max.sources);
-
-// Feed straight into a bridge:
-await client.bridge({ toChainId: 8453, toTokenSymbol: 'USDC', toAmountRaw: max.maxAmountRaw });
-```
-
-You can also restrict which source chains are considered:
-
-```typescript
-const max = await client.calculateMaxForBridge({
-  toChainId: 8453,
-  toTokenSymbol: 'USDC',
-  sources: [10, 42161], // only Optimism + Arbitrum balances
-});
-```
-
-**BridgeMaxParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toChainId` | `number` | Yes | Destination chain ID |
-| `toTokenSymbol` | `string` | Yes | Destination token symbol |
-| `sources` | `number[]` | No | Restrict which source chain IDs to consider |
-
-**BridgeMaxResult:**
-
-```typescript
-type BridgeMaxResult = {
-  toChainId: number;
-  toTokenSymbol: string;
-  provider: 'nexus' | 'mayan';   // Provider the max was sized against
-  maxAmount: string;             // Human-readable decimal string
-  maxAmountRaw: bigint;          // Raw amount suitable for toAmountRaw in bridge()
-  symbol: string;
-  decimals: number;
-  sources: {
-    chainId: number;
-    tokenAddress: Hex;
-    symbol: string;
-    decimals: number;
-    amount: string;              // Human-readable portion from this source
-  }[];
-};
-```
-
-#### `swapAndExecute(params, options?)`
-
-Orchestrates **two distinct operations in sequence — not a single atomic transaction**:
-
-1. **Swap (conditional)** — funds the shortfall on the destination chain. Automatically skipped when the destination already holds enough of the token (`result.swapSkipped === true`).
-2. **Execute + approval (execute always, approval optional)** — the contract call, preceded by an optional token approval, is **always** sent from the user's connected wallet on the destination chain.
-
-Because the two steps run one after the other, they succeed or fail independently. This is **not** atomic: if the execute fails after a swap, the swapped funds remain in the user's wallet on the destination chain (they are not rolled back).
-
-```typescript
-const result = await client.swapAndExecute(
-  {
-    toChainId: 42161,
-    toTokenAddress: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
-    toAmountRaw: 100_000_000n,
-    execute: {
-      to: '0x3333333333333333333333333333333333333333',
-      data: '0xdeadbeef',
-      gas: 100_000n,
-      value: 0n,
-      tokenApproval: {
-        toTokenAddress: '0xaf88d065e77c8cc2239327c5edb3a432268e5831',
-        amount: 100_000_000n,
-        spender: '0x3333333333333333333333333333333333333333',
-      },
-    },
-  },
-  {
-    onEvent: (event) => {
-      if (event.type === 'status') {
-        // preparing | route_building | awaiting_approval | executing | completed
-      }
-    },
-    onIntent: ({ allow, deny, refresh, intent }) => {
-      console.log('Swap required:', intent.swapRequired);
-      allow();
-    },
-  }
-);
-
-console.log(result.swapSkipped);
-console.log(result.swapResult);
-console.log(result.execute.txHash);
-```
-
-**SwapAndExecuteParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `toChainId` | `number` | Yes | Destination chain ID |
-| `toTokenAddress` | `Hex` | Yes | Token address on destination |
-| `toAmountRaw` | `bigint` | Yes | Token amount needed (raw integer units) |
-| `sources` | `Array<{ chainId, tokenAddress }>` | No | Restrict source tokens |
-| `execute` | `SwapExecuteParams` | Yes | Contract execution params |
-
-**SwapExecuteParams:**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `to` | `Hex` | Yes | Contract address |
-| `data` | `Hex` | No | Encoded function call |
-| `gas` | `bigint` | Yes | Gas limit |
-| `value` | `bigint` | No | Native token value (wei) |
-| `gasPrice` | `'low' \| 'medium' \| 'high'` | No | Gas price strategy |
-| `tokenApproval` | `{ toTokenAddress: Hex, amount: bigint, spender: Hex }` | No | Token approval before execution |
-
-**SwapAndExecuteResult:**
-
-```typescript
-type SwapAndExecuteResult = {
-  approval?: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-  execute: {
-    txHash: Hex;
-    txExplorerUrl: string;
-    receipt?: TransactionReceipt;
-  };
-} & (
-  | { swapSkipped: false; swapResult: SwapResult }
-  | { swapSkipped: true; swapResult?: undefined }
-);
-```
-
----
-
-### Intent Management
-
-#### `listIntents(params?)`
-
-Retrieve the connected wallet's historical intents. Page size is fixed at 20 records — paginate by incrementing `page`.
-
-```typescript
-import { IntentStatus } from '@avail-project/nexus-core';
-
-const result = await client.listIntents({
-  page: 1,
-  status: IntentStatus.Fulfilled, // 'created' | 'deposited' | 'fulfilled' | 'expired'
-});
-
-console.log(result.total);
-for (const intent of result.intents) {
-  console.log(intent.requestHash, intent.status);
-  console.log(intent.destinationChain.name);
-  for (const dest of intent.destinations) {
-    console.log(dest.token.symbol, dest.amount);
-  }
-  for (const src of intent.sources) {
-    console.log(src.chain.name, src.token.symbol, src.amount, '(fee:', src.fee, ')');
-  }
-}
-```
-
-```typescript
-type ListIntentsParams = {
-  page?: number;
-  status?: IntentStatus;
-};
-
-type ListIntentsResult = {
-  intents: IntentRecord[];
-  total: number;
-};
-
-type IntentRecord = {
-  requestHash: Hex;
-  explorerUrl: string;
-  status: IntentStatus;
-  solver: Hex | null;
-  createdAt?: number;
-  updatedAt?: number;
-  expiry: number;
-  recipientAddress: Hex;
-  destinationChain: { id: number; name: string; logo: string; universe: 'EVM' | 'TRON' | 'FUEL' | 'SVM' };
-  destinations: Array<{
-    token: { contractAddress: Hex; symbol: string; name: string; logo: string; decimals: number };
-    amount: string;
-    amountRaw: bigint;
-  }>;
-  sources: Array<{
-    chain: { id: number; name: string; logo: string; universe: 'EVM' | 'TRON' | 'FUEL' | 'SVM' };
-    amount: string;
-    amountRaw: bigint;
-    fee: string;
-    feeRaw: bigint;
-    token: { contractAddress: Hex; symbol: string; name: string; logo: string; decimals: number };
-  }>;
-};
-```
-
----
-
-## Hooks & Callbacks
-
-Hooks are essential for building interactive UIs. They allow users to review and approve operations before execution.
-
-### Displayed Intent Freshness
-
-The `intent` object passed to `onIntent` is the pricing preview shown in the app's confirmation UI. If that UI waits for interactive confirmation, keep this displayed intent fresh until the user approves or denies it.
-
-| Operation | Freshness guidance |
-|-----------|--------------------|
-| `swapWithExactIn()`, `swapWithExactOut()`, `swapAndExecute()` when a swap is required | Most underlying swap quotes are valid for roughly 30 seconds. After each refresh completes, wait 20 seconds before starting the next one. |
-| `bridge()`, `bridgeAndTransfer()`, `bridgeAndExecute()` when a bridge is required | Bridge quote deadlines vary by provider. After each refresh completes, wait 15 seconds before starting the next one. |
-
-These are conservative UI-refresh cadences, not guaranteed protocol expiry values. This guidance applies only while displaying the pre-approval intent from `onIntent`; an already signed or submitted intent has separate expiry semantics. The SDK's execution-time requoting is also separate from keeping the confirmation UI current.
-
-Call `refresh()` without arguments to rebuild using the current source selection, or pass sources to change the selection. Always render the returned intent, avoid overlapping refresh calls, and stop refreshing before `allow()` or `deny()`. If a refresh is in flight, disable confirmation until it settles so `allow()` cannot race an older preview.
-
-Use an async timeout rather than `setInterval`. The next timeout must be scheduled only after `refresh()` settles: if refreshing takes 5–10 seconds, a 20-second async timeout waits the full 20 seconds after completion instead of starting the next refresh only 10–15 seconds later.
-
-```typescript
-type ClearAsyncInterval = () => void;
-
-function setAsyncInterval(
-  cb: () => Promise<void>,
-  interval: number,
-  onError: (error: unknown) => void
-): ClearAsyncInterval {
-  let active = true;
-  let timer: ReturnType<typeof setTimeout>;
-
-  const tick = async () => {
-    if (!active) return;
-
-    try {
-      await cb();
-    } catch (error) {
-      onError(error);
-    } finally {
-      if (active) timer = setTimeout(tick, interval);
-    }
-  };
-
-  timer = setTimeout(tick, interval);
-
-  return () => {
-    active = false;
-    clearTimeout(timer);
-  };
-}
-
-await client.swapWithExactOut(input, {
-  hooks: {
-    onIntent: ({ intent, refresh, allow, deny }) => {
-      let refreshing = false;
-      renderSwapIntent(intent);
-
-      const stopRefreshing = setAsyncInterval(async () => {
-        refreshing = true;
-        setIntentRefreshing(true); // disable Confirm in the UI
-        try {
-          renderSwapIntent(await refresh());
-        } finally {
-          refreshing = false;
-          setIntentRefreshing(false);
-        }
-      }, 20_000, showIntentRefreshError);
-
-      showIntentActions({
-        confirm: () => {
-          if (refreshing) return;
-          stopRefreshing();
-          allow();
-        },
-        cancel: () => {
-          stopRefreshing();
-          deny();
-        },
-      });
-    },
-  },
-});
-```
-
-Use `15_000` instead for an interactive bridge intent. Immediate auto-approval (`onIntent: ({ allow }) => allow()`) does not need a refresh loop. Composite operations expose the same `refresh()` callback through their top-level `onIntent` hook.
-
-### Intent Hook
-
-Called when the SDK needs user approval for a bridge/transfer intent. Passed via `options.hooks.onIntent` for bridge operations.
-
-```typescript
-await client.bridge(params, {
-  hooks: {
-    onIntent: async ({ intent, allow, deny, refresh }) => {
-      // Display intent details to user
-      console.log('Source chains:', intent.selectedSources);
-      console.log('Destination:', intent.destination);
-      console.log('Fees:', intent.fees);
-      console.log('Total from sources:', intent.sourcesTotal);
-
-      // Optionally refresh with different source chains
-      const refreshedIntent = await refresh([8453, 42161]);
-      console.log('Refreshed intent:', refreshedIntent);
-
-      // User interaction
-      if (userApproves) {
-        allow();
-      } else {
-        deny(); // Throws USER_DENIED_INTENT error
-      }
-    },
-  },
-});
-```
-
-**OnIntentHookData:**
-
-```typescript
-type OnIntentHookData = {
-  allow: () => void;
-  deny: () => void;
-  intent: BridgeIntent;
-  refresh: (selectedSources?: number[]) => Promise<BridgeIntent>;
-};
-```
-
-> **Interactive approval:** after refreshing the bridge intent displayed in the confirmation UI, wait 15 seconds before starting the next refresh. Render the intent returned by `refresh()` and stop the async timeout before calling `allow()` or `deny()`. See [Displayed Intent Freshness](#displayed-intent-freshness).
-
-**BridgeIntent Structure:**
-
-```typescript
-type BridgeIntent = {
-  // Bridge provider moving the funds cross-chain
-  provider: 'nexus' | 'mayan';
-
-  // Selected sources (chains funds are pulled from)
-  selectedSources: Array<{
-    amount: string;
-    amountRaw: bigint;
-    chain: { id: number; name: string; logo: string };
-    token: { decimals: number; symbol: string; logo: string; contractAddress: Hex };
-    value: string;
-  }>;
-
-  // All available sources (before selection)
-  availableSources: Array<{ /* same shape as selectedSources */ }>;
-
-  // Destination details
-  destination: {
-    amount: string;
-    amountRaw: bigint;
-    chain: { id: number; name: string; logo: string };
-    token: { decimals: number; symbol: string; logo: string; contractAddress: Hex };
-    value: string;
-    nativeAmount: string;          // Human-readable native token amount
-    nativeAmountRaw: bigint;       // Raw native token amount
-    nativeAmountValue: string;     // USD value of native amount
-    nativeAmountInToken: string;   // Native gas expressed in bridge token units
-    nativeToken: { decimals: number; symbol: string; logo: string; contractAddress: Hex };
-  };
-
-  // Fee breakdown
-  fees: {
-    caGas: string;        // Chain abstraction gas fee
-    protocol: string;     // Protocol fee
-    solver: string;       // Solver fee
-    total: string;        // Total fees
-    totalValue: string;   // Total fees in USD
-  };
-
-  // Total amount from all sources
-  sourcesTotal: string;
-  sourcesTotalValue: string;
-};
-```
-
-### Allowance Hook
-
-Called when token approval is needed before a transaction. Passed via `options.hooks.onAllowance` for bridge operations.
-
-```typescript
-await client.bridge(params, {
-  hooks: {
-    onAllowance: ({ sources, allow, deny }) => {
-      // Display approval request to user
-      sources.forEach((source) => {
-        console.log(`Chain: ${source.chain.name}`);
-        console.log(`Token: ${source.token.symbol}`);
-        console.log(`Current allowance: ${source.allowance.current}`);
-        console.log(`Required minimum: ${source.allowance.minimum}`);
-      });
-
-      // Approve with options:
-      allow(['min']);           // Approve exact minimum needed
-      allow(['max']);           // Approve unlimited (type(uint256).max)
-      allow([1000000n]);        // Approve specific amount
-      allow(['min', 'max']);    // Different per source (by index)
-
-      // Or deny
-      deny(); // Throws USER_DENIED_ALLOWANCE error
-    },
-  },
-});
-```
-
-**OnAllowanceHookData:**
-
-```typescript
-type OnAllowanceHookData = {
-  allow: (amounts: Array<'max' | 'min' | bigint | string>) => void;
-  deny: () => void;
-  sources: AllowanceHookSources;
-};
-
-type AllowanceHookSources = Array<{
-  allowance: {
-    current: string;       // Current allowance (human-readable)
-    currentRaw: bigint;    // Current allowance (raw)
-    minimum: string;       // Minimum required (human-readable)
-    minimumRaw: bigint;    // Minimum required (raw)
-  };
-  chain: {
-    id: number;
-    logo: string;
-    name: string;
-  };
-  token: {
-    contractAddress: Hex;
-    decimals: number;
-    logo: string;
-    name: string;
-    symbol: string;
-  };
-}>;
-```
-
-### Swap Intent Hook
-
-Called when user approval is needed for a swap operation. Passed via `options.hooks.onIntent` for `swapWithExactIn()` and `swapWithExactOut()`. The `refresh()` callback optionally takes a new `sources` list to re-quote against a different set of source tokens.
-
-```typescript
-await client.swapWithExactOut(input, {
-  hooks: {
-    onIntent: async ({ intent, allow, deny, refresh }) => {
-      console.log('Swap from:', intent.sources);
-      console.log('Swap to:', intent.destination);
-      console.log('Bridge fees:', intent.feesAndBuffer.bridge); // null when no bridge needed
-      console.log('Bridge provider:', intent.bridgeProvider);   // 'nexus' | 'mayan' | null
-      console.log('Slippage buffer:', intent.feesAndBuffer.buffer);
-
-      // Refresh to get an updated quote, optionally restricting sources
-      const refreshedIntent = await refresh([
-        { chainId: 8453, tokenAddress: '0x...' },
-      ]);
-      console.log('Refreshed swap intent:', refreshedIntent);
-
-      if (userApproves) {
-        allow();
-      } else {
-        deny();
-      }
-    },
-  },
-});
-```
-
-**SwapIntent:**
-
-```typescript
-type SwapIntent = {
-  destination: {
-    amount: string;          // Exact In: expected output; Exact Out: requested output
-    value?: string;          // Exact In: expected output USD value when available
-    chain: { id: number; logo: string; name: string };
-    token: { contractAddress: Hex; decimals: number; symbol: string };
-    gas: {
-      amount: string;
-      value?: string;
-      token: { contractAddress: Hex; decimals: number; symbol: string };
-    };
-  };
-  feesAndBuffer: {
-    buffer: string;
-    bridge: { caGas: string; protocol: string; solver: string; total: string } | null;
-  };
-  bridgeProvider: 'nexus' | 'mayan' | null; // bridge moving COT cross-chain; null when no bridge
-  sources: Array<{
-    amount: string;
-    value?: string;
-    chain: { id: number; logo: string; name: string };
-    token: { contractAddress: Hex; decimals: number; symbol: string };
-  }>;
-};
-
-type OnIntentHookData = {
-  allow: () => void;
-  deny: () => void;
-  intent: SwapIntent;
-  refresh: (sources?: Array<{ chainId: number; tokenAddress: Hex }>) => Promise<SwapIntent>;
-};
-```
-
-> **Interactive approval:** most swap quotes are valid for roughly 30 seconds. After refreshing the swap intent displayed in the confirmation UI, wait 20 seconds before starting the next refresh. Use an async timeout so sequential routing does not shorten that wait. See [Displayed Intent Freshness](#displayed-intent-freshness).
-
-### Composite Intent Hooks (Bridge + Execute / Swap + Execute)
-
-`bridgeAndExecute()` and `swapAndExecute()` use a top-level `onIntent` hook (not nested under `hooks`). The intent data is a composite type that includes the execution requirement, available balances, and whether a bridge/swap is actually needed.
-
-When the composite intent reports `bridgeRequired: true` or `swapRequired: true`, keep it fresh with the corresponding 15-second bridge or 20-second swap cadence until approval.
-
-#### Bridge and Execute Intent
-
-```typescript
-await client.bridgeAndExecute(params, {
-  onIntent: ({ intent, allow, deny, refresh }) => {
-    // Execution requirement (always present)
-    console.log('Contract:', intent.executeRequirement.to);
-    console.log('Token needed:', intent.executeRequirement.token.amount, intent.executeRequirement.token.symbol);
-    console.log('Gas estimate:', intent.executeRequirement.gas.estimatedGasUnits);
-
-    // Available balances on destination
-    console.log('Token on-chain:', intent.available.token.amount);
-    console.log('Gas on-chain:', intent.available.gas.amount);
-
-    if (intent.bridgeRequired) {
-      // Bridge is needed — shortfall and bridge intent available
-      console.log('Token shortfall:', intent.shortfall.token.amount);
-      console.log('Gas shortfall:', intent.shortfall.gas.amount);
-      console.log('Bridge sources:', intent.bridge.selectedSources);
-      console.log('Bridge fees:', intent.bridge.fees.total);
-
-      // Optionally refresh with different source chains
-      const refreshed = await refresh([8453, 42161]);
-      console.log('Refreshed bridge:', refreshed.bridgeRequired);
-    } else {
-      // Sufficient balance — bridge will be skipped
-      console.log('No bridge needed, executing directly');
-    }
-
-    allow();
-  },
-});
-```
-
-**BridgeAndExecuteIntent:**
-
-```typescript
-type BridgeAndExecuteIntent = {
-  executeRequirement: ExecuteRequirement;
-  available: AvailableBalances;
-} & (
-  | { bridgeRequired: false }
-  | {
-      bridgeRequired: true;
-      shortfall: Shortfall;
-      bridge: BridgeIntent;
-    }
-);
-```
-
-**BridgeAndExecuteOnIntentHookData:**
-
-```typescript
-type BridgeAndExecuteOnIntentHookData = {
-  allow: () => void;
-  deny: () => void;
-  intent: BridgeAndExecuteIntent;
-  refresh: (selectedSources?: number[]) => Promise<BridgeAndExecuteIntent>;
-};
-```
-
-#### Swap and Execute Intent
-
-```typescript
-await client.swapAndExecute(params, {
-  onIntent: ({ intent, allow, deny, refresh }) => {
-    // Execution requirement (always present)
-    console.log('Contract:', intent.executeRequirement.to);
-    console.log('Token needed:', intent.executeRequirement.token.amount);
-
-    if (intent.swapRequired) {
-      // Swap is needed
-      console.log('Token shortfall:', intent.shortfall.token.amount);
-      console.log('Swap sources:', intent.swap.sources);
-      console.log('Swap destination:', intent.swap.destination.amount);
-
-      // Refresh with different sources
-      const refreshed = await refresh([{ chainId: 8453, tokenAddress: '0x...' }]);
-      console.log('Refreshed:', refreshed.swapRequired);
-    } else {
-      console.log('No swap needed, executing directly');
-    }
-
-    allow();
-  },
-});
-```
-
-**SwapAndExecuteIntent:**
-
-```typescript
-type SwapAndExecuteIntent = {
-  executeRequirement: ExecuteRequirement;
-  available: AvailableBalances;
-} & (
-  | { swapRequired: false }
-  | {
-      swapRequired: true;
-      shortfall: Shortfall;
-      swap: SwapIntent;
-    }
-);
-```
-
-**SwapAndExecuteOnIntentHookData:**
-
-```typescript
-type SwapAndExecuteOnIntentHookData = {
-  allow: () => void;
-  deny: () => void;
-  intent: SwapAndExecuteIntent;
-  refresh: (sources?: Source[]) => Promise<SwapAndExecuteIntent>;
-};
-```
-
-#### Shared Types
-
-```typescript
-type ExecuteFeeParams =
-  | { type: 'eip1559'; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }
-  | { type: 'legacy'; gasPrice: bigint };
-
-type ExecuteRequirement = {
-  chain: { id: number; name: string; logo?: string };
-  to: Hex;
-  token: {
-    address: Hex;
-    symbol: string;
-    decimals: number;
-    amount: string;
-    amountRaw: bigint;
-    value: string;        // USD value
-  };
-  gas: {
-    address: Hex;
-    symbol: string;
-    decimals: number;
-    amount: string;
-    amountRaw: bigint;
-    value: string;
-    estimatedGasUnits: string;
-    feeParams: ExecuteFeeParams; // EIP-1559 or legacy (Arbitrum) pricing
-    l1Fee: string;
-    priceTier: 'low' | 'medium' | 'high';
-  };
-  nativeValue: { amount: string; amountRaw: bigint; value: string } | null;
+Pass `swapOptions` as the second argument to either swap method. Replace the logging with your
+application's progress UI; the error example below uses these same options.
+
+Plan step types are `erc20_approval`, `source_approval_signature`, `intent_signature`,
+`native_transaction`, `intent_submission`, and `intent_fulfillment`. Event callback failures
+do not interrupt the operation. Use `errorDetails` instead of the deprecated step `error` string.
+
+Swap promises resolve after fulfillment with `IntentResult`: `intentId`, `intentExplorerUrl`,
+`quote`, `status`, `approvals`, `nativeTransactions`, and optional `attemptId`. Track `attemptId`
+alongside `intentId` for support. A rejected promise may follow already-submitted transactions.
+
+## Execute a contract call
+
+```ts
+import type { ExecuteParams } from '@avail-project/nexus-core';
+
+declare const contract: ExecuteParams['to'];
+declare const calldata: ExecuteParams['data'];
+const executeParams: ExecuteParams = {
+  toChainId: destination.chainId,
+  to: contract,
+  data: calldata,
+  value: 0n,
   tokenApproval: {
-    token: { address: Hex; symbol: string; decimals: number };
-    amount: string;
-    amountRaw: bigint;
-    spender: Hex;
-  } | null;
-};
-
-type AvailableBalances = {
-  token: { amount: string; amountRaw: bigint; value: string };
-  gas: { amount: string; amountRaw: bigint; value: string };
-};
-
-type Shortfall = {
-  token: { amount: string; amountRaw: bigint; value: string };
-  gas: { amount: string; amountRaw: bigint; value: string };
-};
-```
-
-### Event Callbacks
-
-All main SDK operations accept an `onEvent` callback to track progress through a typed event system.
-
-```typescript
-await client.bridge(params, {
-  onEvent: (event) => {
-    switch (event.type) {
-      case 'status':
-        // Lifecycle phase: intent_building → intent_ready → awaiting_approval → ...
-        console.log('Status:', event.status);
-        break;
-
-      case 'plan_preview':
-        // Emitted once with the planned steps before execution
-        console.log('Plan steps:', event.plan.steps);
-        break;
-
-      case 'plan_confirmed':
-        // Emitted after user approval with final steps
-        console.log('Confirmed plan:', event.plan.steps);
-        break;
-
-      case 'plan_progress':
-        // Per-step progress: wallet_prompted → submitted → confirmed → completed
-        console.log(`Step ${event.step.type}: ${event.state}`);
-        break;
-    }
+    toTokenAddress: destination.tokenAddress,
+    amount: amountRaw,
+    spender: contract,
   },
-});
-```
-
-**Hook Placement by Operation:**
-
-| Operation | `onEvent` | `onIntent` | `onAllowance` |
-|-----------|-----------|------------|----------------|
-| `bridge()` | `options.onEvent` | `options.hooks.onIntent` | `options.hooks.onAllowance` |
-| `bridgeAndTransfer()` | `options.onEvent` | `options.hooks.onIntent` | `options.hooks.onAllowance` |
-| `bridgeAndExecute()` | `options.onEvent` | `options.onIntent` (top-level) | automatic (`min`) |
-| `swapWithExactIn()` | `options.onEvent` | `options.hooks.onIntent` | N/A |
-| `swapWithExactOut()` | `options.onEvent` | `options.hooks.onIntent` | N/A |
-| `swapAndExecute()` | `options.onEvent` | `options.onIntent` (top-level) | N/A |
-
-Use hooks for approval-time intent and allowance data. Use the awaited return value for final result data such as `intentExplorerUrl`, `sourceTxs`, or `execute`.
-
----
-
-## Events & Steps
-
-The SDK emits typed events during operations, enabling real-time progress UIs.
-
-### Event Types
-
-All events follow a discriminated union pattern on `event.type`:
-
-```typescript
-type BridgeEvent =
-  | BridgeStatusEvent           // { type: 'status'; status: BridgeStatus }
-  | BridgePlanPreviewEvent      // { type: 'plan_preview'; plan: BridgePlan }
-  | BridgePlanConfirmedEvent    // { type: 'plan_confirmed'; plan: BridgePlan }
-  | BridgePlanProgressEvent;    // { type: 'plan_progress'; stepType, state, step, ... }
-
-type BridgeStatus =
-  | 'intent_building'
-  | 'intent_ready'
-  | 'awaiting_approval'
-  | 'awaiting_allowance_selection'
-  | 'approved'
-  | 'executing'
-  | 'completed';
-
-// Composite bridge + execute flow adds an initial 'preparing' phase
-type BridgeAndExecuteStatus = 'preparing' | BridgeStatus;
-
-type SwapEvent =
-  | SwapStatusEvent
-  | SwapPlanPreviewEvent
-  | SwapPlanConfirmedEvent
-  | SwapPlanProgressEvent;
-
-type SwapStatus =
-  | 'route_building'
-  | 'route_ready'
-  | 'awaiting_approval'
-  | 'approved'
-  | 'executing'
-  | 'completed';
-
-// Composite swap + execute flow adds an initial 'preparing' phase
-type SwapAndExecuteStatus = 'preparing' | SwapStatus;
-```
-
-### Bridge Steps
-
-Bridge plans contain the following step types:
-
-| Step Type | Description |
-|-----------|-------------|
-| `allowance_approval` | Token allowance approval on a source chain |
-| `request_signing` | User signs the intent request |
-| `request_submission` | Intent submitted to the network |
-| `vault_deposit` | Deposit into vault on a source chain |
-| `bridge_fill` | Fill received on destination chain |
-
-### Swap Steps
-
-Swap plans contain the following step types:
-
-| Step Type | Description |
-|-----------|-------------|
-| `allowance` | Authorize an EOA-held ERC-20 for the Safe or bridge vault |
-| `source_swap` | Execute a swap through the Safe on a source chain |
-| `eoa_to_ephemeral_transfer` | Move EOA-held bridge funds to the ephemeral holder when source swaps are required |
-| `bridge_deposit` | Deposit into vault for cross-chain bridge |
-| `bridge_intent_submission` | Submit the bridge intent to the network |
-| `bridge_fill` | Wait for bridge fill on destination chain |
-| `destination_swap` | Execute a swap through the Safe on the destination chain |
-
-**SwapPlan:**
-
-```typescript
-type SwapPlan = {
-  hasBridge: boolean;
-  hasDestinationSwap: boolean;
-  steps: SwapPlanStep[];
 };
-
-type SwapPlanStep =
-  | SwapAllowanceStep
-  | SwapSourceSwapStep
-  | SwapEoaToEphemeralTransferStep
-  | SwapBridgeDepositStep
-  | SwapBridgeIntentSubmissionStep
-  | BridgeFillStep
-  | SwapDestinationSwapStep;
+const estimate = await client.simulateExecute(executeParams);
+const executed = await client.execute(executeParams);
+console.log(estimate.estimatedGasUnits, executed.execute.txExplorerUrl);
 ```
 
-In `plan_preview`, an `allowance` step is provisional and omits `method`. After intent approval,
-`plan_confirmed` removes allowances that are already sufficient and sets each remaining step's
-`method` to `approval` or `permit`. Authorization continues to report progress through its adjacent
-transfer, swap, or bridge step rather than a separate allowance progress event.
+Omit `tokenApproval` when none is required; native-token transfers use `value`. Simulation requires
+a wallet and estimates approval gas when needed. Execution returns `execute`, optional `approval`,
+and `chainId`. By default it waits for a receipt; `waitForReceipt: false` returns after broadcast.
+Receipt controls are `receiptTimeout` (milliseconds, default 300000) and `requiredConfirmations`
+(default 1). A submitted transaction can still fail after a broadcast-only result.
 
-Each step carries contextual metadata such as its chain and tokens. Source and destination swap steps also expose `walletPath: 'safe'`. Progress events report per-step state transitions. The terminal success state varies by step type:
+## Fund and execute
 
-- On-chain transaction steps (`allowance_approval`, `source_swap`, `eoa_to_ephemeral_transfer`, `bridge_deposit`, `destination_swap`, `execute_approval`, `execute_transaction`) settle on `confirmed`.
-- `vault_deposit` settles on `completed` — it emits `confirmed` as an on-chain intermediate, then `completed` as its terminal-success state.
-- Off-chain orchestration steps (`request_signing`, `request_submission`, `bridge_intent_submission`, `bridge_fill`) settle on `completed`.
-- All steps can emit `failed`.
-
-For a robust progress UI, treat both `'confirmed'` and `'completed'` as terminal-success states.
-
-### Progress Event Payloads
-
-Each `plan_progress` event carries `type: 'plan_progress'`, `stepType`, `state`, and `step` (the matching step object from `plan.steps`) — plus **state-specific sibling fields** you'll want for the UI. These are fully typed: narrow a `BridgeEvent` / `SwapEvent` on (`stepType`, `state`) and TypeScript reveals the fields below (the per-step event types like `BridgeVaultDepositProgressEvent`, `ExecuteTransactionProgressEvent` are exported).
-
-| Field | On | Meaning |
-|-------|----|---------|
-| `txHash` / `explorerUrl` | on-chain steps in `submitted` / `confirmed` (optional on `failed`): `allowance_approval`, `vault_deposit`, `execute_approval`, `execute_transaction`, and source/destination swap steps | The submitted transaction hash and its explorer URL — use for "View tx" links |
-| `intentRequestHash` | `request_signing` (`completed`), `request_submission`, `bridge_fill` | The intent/RFF hash — use for "View intent" links |
-| `error` | every `failed` state | Failure text (already inlined; the underlying cause is here) |
-| `approvedAmount` / `approvedAmountRaw` | `allowance_approval` | Amount approved at this step |
-| `value` / `hasData` | `execute_transaction` | Native value sent and whether calldata is present |
-
-The **`step` object** carries the contextual metadata — and chain lives on `event.step.chain`, **not** `event.chain`:
-
-```typescript
-client.bridge(params, {
-  onEvent: (event) => {
-    if (event.type !== 'plan_progress') return;
-    const chainName = event.step.chain?.name;            // step.chain, not event.chain
-    if ((event.state === 'submitted' || event.state === 'confirmed') && 'txHash' in event) {
-      console.log('tx:', event.txHash, event.explorerUrl);
-    }
-    if (event.state === 'failed' && 'error' in event) {
-      console.error(event.step.type, 'failed:', event.error);
-    }
+```ts
+const composed = await client.swapAndExecute(
+  {
+    toChainId: destination.chainId,
+    toTokenAddress: destination.tokenAddress,
+    toAmountRaw: amountRaw,
+    execute: {
+      to: contract,
+      data: calldata,
+      gas: 350_000n,
+      tokenApproval: executeParams.tokenApproval,
+    },
   },
-});
+  {
+    hooks: {
+      onIntent({ intent, allow }) {
+        console.log(intent.executeRequirement, intent.available, intent.shortfall);
+        allow(); // In an app, call after the user confirms.
+      },
+    },
+  },
+);
+console.log(composed.swapSkipped, composed.execute.txExplorerUrl);
+if (!composed.swapSkipped) console.log(composed.swapResult.intentExplorerUrl);
 ```
 
-Per-step `step` shapes (all include `id` and `type`): swap `allowance` → `method?`, `chain`, `token`, `spender`, `amount`; bridge `allowance_approval` → `chain`, `token`, `spender`, `requiredAmount`; `vault_deposit` → `chain`, `asset`, `assetType`, `submissionMode`; `bridge_fill` → `chain`, `asset`; `execute_approval` → `chain`, `token`, `spender`, `amount`; `execute_transaction` → `chain`, `to`. Swap source/destination steps carry `swaps[]` with `input`/`output` token amounts.
+Supply a positive `execute.gas` estimate appropriate to your contract call. The SDK accounts for
+execution gas and value, funds the destination shortfall, then executes after fulfillment.
+The composite hook receives `intent`, not `quote`; it runs even if funding is already sufficient.
+`intent.quote` exists only when `intent.swapRequired` is true.
 
-### Building Progress UIs
+Composite `refresh(sources?)` returns an updated intent with current fee estimates and a replacement
+funding quote when needed. It reuses the original balance snapshot; start a new operation to reread
+balances. Omitted sources retain the selection; `[]` clears it. Top-level `beforeExecute` can return
+`{ data?, value?, gas? }` after funding, but overrides do not recalculate funding.
+Intent events cover funding; the composite promise covers the subsequent contract call too.
 
-Example using the typed plan/progress event system:
+## History and errors
 
-```typescript
-import { createNexusClient } from '@avail-project/nexus-core';
-import type { BridgeEvent, BridgePlanStep } from '@avail-project/nexus-core';
-
-let steps: BridgePlanStep[] = [];
-const completedSteps = new Set<string>();
-
-await client.bridge(params, {
-  onEvent: (event: BridgeEvent) => {
-    switch (event.type) {
-      case 'plan_preview':
-        // Initialize UI with planned steps
-        steps = event.plan.steps;
-        renderProgress();
-        break;
-
-      case 'plan_progress':
-        // Both 'confirmed' and 'completed' are terminal success states
-        if (event.state === 'confirmed' || event.state === 'completed') {
-          completedSteps.add(event.step.id);
-        }
-        renderProgress();
-        break;
-
-      case 'status':
-        if (event.status === 'completed') {
-          console.log('Bridge complete!');
-        }
-        break;
-    }
-  },
-  hooks: {
-    onIntent: ({ allow }) => allow(),
-    onAllowance: ({ allow }) => allow(['min']),
-  },
-});
-
-function renderProgress() {
-  steps.forEach((step) => {
-    const done = completedSteps.has(step.id);
-    console.log(`${done ? '✓' : '○'} ${step.type}`);
-  });
-}
+```ts
+const history = await client.listIntents({ page: 1, status: 'fulfilled' });
+console.log(history.intents, history.total);
 ```
 
----
+All SDK errors extend `NexusError` and carry `category`, `code`, `context`, and optional `details`.
+Use `UserActionError` for denials and `ERROR_CODES` for specific recovery actions.
+`getIntentQuoteFailure(error)` extracts structured routing, balance, approval-gas, and price
+diagnostics. Handle codes rather than parsing message text. See the [error reference](docs/ERRORS.md).
 
-## Error Handling
-
-### NexusError Hierarchy
-
-SDK errors are concrete subclasses of the abstract base `NexusError<C>`. Each subclass pins its
-category and narrows the allowed `context.service` value. Switch on `error.category` (or
-`instanceof`) for coarse handling; check `error.code` for the specific failure mode.
-
-```typescript
+```ts
 import {
-  NexusError,
-  ValidationError,
-  UserActionError,
-  BackendError,
-  ExternalServiceError,
-  ExecutionError,
   ERROR_CODES,
+  NexusError,
+  UserActionError,
+  getIntentQuoteFailure,
 } from '@avail-project/nexus-core';
 
 try {
-  await client.bridge({ toTokenSymbol: 'USDC', toAmountRaw: 1_000_000n, toChainId: 137 });
+  const swap = await client.swapWithExactOut(
+    {
+      toChainId: destination.chainId,
+      toTokenAddress: destination.tokenAddress,
+      toAmountRaw: amountRaw,
+    },
+    swapOptions,
+  );
+  console.log('Fulfilled', swap.intentExplorerUrl);
 } catch (error) {
-  if (!(error instanceof NexusError)) {
-    console.error('Unexpected error:', error);
+  if (error instanceof UserActionError) {
+    console.info('Action declined', error.code);
+  } else if (error instanceof NexusError) {
+    switch (error.code) {
+      case ERROR_CODES.WALLET_NOT_CONNECTED:
+        console.info('Connect a wallet, then request a fresh quote.');
+        break;
+      case ERROR_CODES.BACKEND_INSUFFICIENT_BALANCE:
+        console.info('Fund the wallet or choose different source assets.');
+        break;
+      case ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS:
+        console.info('Add native gas funds on the source chain or choose another source.');
+        break;
+      default:
+        console.error(error.message, error.code, error.context);
+    }
+
+    const failure = getIntentQuoteFailure(error);
+    if (failure) console.log('Quote diagnostics', failure.subcode, failure.sourceVerdicts);
+    if (error.details?.approvals) console.log('Broadcast approvals', error.details.approvals);
+  } else {
     throw error;
   }
-
-  // Coarse handling via category
-  switch (error.category) {
-    case 'user_action':
-      // User cancelled — typically not shown as a failure
-      return;
-    case 'validation':
-      showValidationError(error.message);
-      return;
-    case 'backend':
-    case 'external_service':
-      showRetryableUpstreamError(error);
-      return;
-  }
-
-  // Specific code handling
-  switch (error.code) {
-    case ERROR_CODES.INSUFFICIENT_BALANCE:
-      showInsufficientBalanceUI();
-      break;
-    case ERROR_CODES.EXEC_TX_RECEIPT_WAIT_TIMEOUT:
-      showRetryOption();
-      break;
-    case ERROR_CODES.EXEC_TX_ONCHAIN_REVERTED:
-      showOnChainRevert();
-      break;
-    default:
-      showGenericError(error.message);
-  }
-
-  // Errors are flat — the underlying cause (viem revert, HTTP failure, …) is already
-  // inlined into error.message. Log the queryable axes for support/forensics.
-  console.error(error.code, error.message, error.context, error.details);
 }
 ```
 
-**Hierarchy:**
+Use the messages to update your UI and retain the error code/context for support. Event handlers
+show progress; the operation's promise must still be caught to handle the final failure.
 
-```typescript
-abstract class NexusError<C extends ErrorCategory = ErrorCategory> extends Error {
-  readonly category: C;
-  readonly code: ErrorCode;
-  readonly context: ErrorContext<C>;        // service narrowed per category
-  readonly details?: Record<string, unknown>;
-  toJSON(): object;                         // flat, single-level
-}
+After a timeout or connection failure following commitment, check history, the explorer, and known
+transaction hashes before retrying. The intent may still fulfill. Approval failures can expose
+`error.details.approvals` with `confirmed`, `reverted`, or `unconfirmed` states. An unconfirmed
+transaction may still confirm; use a fresh quote when starting another operation.
 
-class ValidationError      extends NexusError<'validation'>       {}  // no service
-class UserActionError      extends NexusError<'user_action'>      {}  // wallet | hook
-class SimulationError      extends NexusError<'simulation'>       {}  // rpc
-class ExecutionError       extends NexusError<'execution'>        {}  // wallet | rpc
-class BackendError         extends NexusError<'backend'>          {}  // middleware
-class ExternalServiceError extends NexusError<'external_service'> {}  // lifi | bebop | zerox | mystic | relay | coinbase
-class InternalError        extends NexusError<'internal'>         {}  // no service
-```
+Product analytics can be disabled with `analytics: { enabled: false }` in the client config.
+Diagnostic logging is configured separately; see the [telemetry reference](docs/TELEMETRY.md).
 
-Errors are flat: there is no native `cause` capture and no chain-walking
-(`walk` / `find` / chain rendering). When the SDK catches an underlying error
-(a viem revert, an HTTP failure), its text is inlined into `error.message`, so
-`message` is self-contained for logs and toasts.
+## Migrating an existing integration
 
-Step-bound failures are not a separate class — they're whichever subclass actually applies,
-carrying `context.stepId` / `context.stepType` / `context.chainId`. Replace any prior
-`error instanceof NexusStepError` check with
-`error instanceof NexusError && error.context.stepId !== undefined`.
+Use address-based swaps for removed `bridge` / `bridgeAndTransfer` methods and `swapAndExecute`
+for `bridgeAndExecute`. There is no recipient override or standalone swap simulation method;
+use quote review through `onIntent`. `getBalancesForSwap` is a deprecated alias of `getBalances`.
 
-### Error Codes Reference
-
-Codes follow `category/specific_noun_suffix`. Suffixes: `_failed`, `_timeout`, `_reverted`,
-`_denied`, `_exceeded` — or no suffix for non-failure terminal states.
-
-| Error Code | Description | User Action |
-|------------|-------------|-------------|
-| **user_action/*** | | |
-| `user_action/intent_hook_denied` | User rejected intent via dApp hook | None — user cancelled |
-| `user_action/intent_signature_denied` | User rejected EIP-191 sign in wallet | None — user cancelled |
-| `user_action/allowance_approval_denied` | User rejected token approve tx | None — user cancelled |
-| `user_action/siwe_signature_denied` | User rejected SIWE signature | None — user cancelled |
-| `user_action/tx_send_denied` | User rejected a tx send (execute / vault deposit / atomic batch) | None — user cancelled |
-| `user_action/ephemeral_key_denied` | User rejected the ephemeral-key derivation signature | None — user cancelled |
-| **validation/*** | | |
-| `validation/insufficient_balance` | Not enough tokens for operation | Show balance, suggest deposit |
-| `validation/amount_too_low` | Amount cannot cover bridge fees | Increase the source amount |
-| `validation/no_balance_for_address` | No balance found for address | Verify address |
-| `validation/invalid_input` | Invalid parameters provided | Check input values |
-| `validation/invalid_address_length` | Address has wrong length | Verify address format |
-| `validation/invalid_allowance_hook` | Invalid allowance hook values | Check allow() arguments |
-| `validation/token_not_supported` | Token not supported on chain | Use supported token |
-| `validation/sdk_not_initialized` | SDK not initialized | Call initialize() first |
-| `validation/sdk_init_state_unexpected` | Unexpected init state | Re-initialize SDK |
-| `validation/wallet_not_connected` | No wallet connected | Connect wallet |
-| `validation/chain_not_found` | Chain id not supported | Use supported chain |
-| `validation/chain_data_not_found` | Chain metadata missing | Check network connection |
-| `validation/vault_contract_not_found` | Vault contract missing for chain | Contact support |
-| `validation/environment_not_supported` | Env not supported | Use mainnet/canary/testnet |
-| `validation/environment_not_known` | Unknown env | Check configuration |
-| `validation/asset_not_found` | Asset not found | Check token address |
-| `validation/universe_not_supported` | Universe not supported | Use supported chain |
-| **execution/*** (service=wallet for submission, service=rpc for reads/receipt polls) | | |
-| `execution/tx_receipt_wait_timeout` | Receipt did not arrive in time | Retry or check explorer |
-| `execution/tx_onchain_reverted` | Tx mined with `status: 0` | Check contract/params |
-| `execution/tx_submission_reverted` | Wallet returned revert at submit | Check params; retry |
-| `execution/tx_receipt_check_failed` | Receipt fetch errored | Retry |
-| `execution/exec_tx_send_failed` | sendTransaction failed | Retry |
-| `execution/exec_tx_confirm_failed` | Tx confirm polling failed | Retry |
-| `execution/approval_tx_send_failed` | Approve tx send failed | Retry approval |
-| `execution/approval_tx_confirm_failed` | Approve tx confirm failed | Retry approval |
-| `execution/atomic_batch_status_failed` | waitForCallsStatus failed | Retry |
-| `execution/gas_estimate_failed` | estimateGas/estimateFeesPerGas failed | Retry |
-| `execution/gas_price_fetch_failed` | gas price recommendations failed | Retry |
-| `execution/l1_fee_estimate_failed` | Arbitrum/Optimism L1 oracle failed | Retry |
-| `execution/erc20_allowance_read_failed` | allowance() read failed | Retry |
-| `execution/erc20_nonce_read_failed` | permit nonces() read failed | Retry |
-| `execution/erc20_name_read_failed` | ERC20.name() read failed | Retry |
-| `execution/intent_sign_failed` | RFF intent sign failed (technical) | Retry |
-| `execution/permit_sign_failed` | EIP-712 permit sign failed (technical) | Retry |
-| `execution/wallet_connect_failed` | Wallet provider init failed | Retry connection |
-| `execution/chain_switch_failed` | wallet_switchEthereumChain failed | Switch manually |
-| `execution/vault_deposit_send_failed` | Vault deposit submit failed | Retry |
-| `execution/vault_deposit_confirm_failed` | Vault deposit confirm failed | Retry |
-| `execution/destination_sweep_failed` | Post-bridge sweep failed | Contact support |
-| `execution/refund_send_failed` | Refund tx submit failed | Contact support |
-| `execution/refund_check_failed` | Refund receipt poll failed | Contact support |
-| `execution/slippage_exceeded` | Post-execution slippage check failed | Refresh and retry |
-| **backend/*** (service=middleware) | | |
-| `backend/balances_fetch_failed` | Middleware balances fetch failed | Retry |
-| `backend/deployment_fetch_failed` | Middleware deployment fetch failed | Retry |
-| `backend/oracle_prices_fetch_failed` | Middleware oracle prices fetch failed | Retry |
-| `backend/rff_submit_failed` | Middleware RFF submit failed | Retry |
-| `backend/rff_fetch_failed` | Middleware RFF fetch failed | Retry |
-| `backend/rff_list_failed` | Middleware RFF list failed | Retry |
-| `backend/rff_status_fetch_failed` | Middleware RFF status fetch failed | Retry |
-| `backend/sbc_submit_failed` | Middleware SBC submit failed | Retry |
-| `backend/approvals_ws_failed` | Middleware approvals WS failed | Retry |
-| `backend/simulation_bundle_failed` | Middleware bundle simulation failed | Check parameters |
-| `backend/fulfilment_wait_timeout` | Bridge fulfilment did not land in window | Retry later |
-| `backend/fee_grant_requested` | Fee grant requested (non-failure state) | n/a |
-| `backend/get_quote_failed` | Middleware quote fetch failed | Retry |
-| `backend/get_mayan_quote_failed` | Middleware Mayan quote fetch failed | Retry |
-| `backend/get_bridge_provider_failed` | Middleware bridge-provider selection failed | Retry |
-| `backend/report_mayan_tx_failed` | Middleware Mayan-tx report failed | Retry |
-| `backend/safe_get_address_failed` | Middleware Safe address fetch failed | Retry |
-| `backend/safe_ensure_failed` | Middleware Safe account ensure/deploy failed | Retry |
-| `backend/safe_execute_failed` | Middleware Safe execute failed | Retry |
-| **external_service/*** (service=lifi / bebop / zerox / mystic / relay / coinbase) | | |
-| `external_service/destination_swap_quote_failed` | Destination aggregator quote failed | Retry or adjust |
-| `external_service/source_swap_quote_failed` | Source aggregator quote failed | Retry or adjust |
-| `external_service/swap_route_build_failed` | Aggregator route build failed | Try different sources |
-| `external_service/rates_drift_exceeded` | Aggregator re-quote drifted beyond tolerance | Refresh and retry |
-| `external_service/exchange_rate_fetch_failed` | Coinbase exchange-rate fetch failed | Retry |
-| **simulation/*** (service=rpc) | | |
-| `simulation/eth_call_failed` | RPC-side simulation failed | Check parameters |
-| **internal/*** | | |
-| `internal/error` | Internal SDK invariant | Contact support |
-| `internal/unknown_signature` | Unhandled signature variant | Contact support |
-| `internal/ephemeral_key_derive_failed` | Ephemeral key derivation invariant | Retry / contact support |
-| `internal/destination_request_hash_not_found` | Expected hash missing from middleware response | Contact support |
-
-> **Note:** v1-era SCREAMING_SNAKE code values (`INSUFFICIENT_BALANCE`, `USER_DENIED_INTENT`,
-> `TRANSACTION_TIMEOUT`, etc.) are gone. Use the namespaced strings above. The TypeScript
-> `ERROR_CODES` const has been renamed accordingly (e.g. `ERROR_CODES.INSUFFICIENT_BALANCE`
-> still exists as a key but its value is now `'validation/insufficient_balance'`).
-
----
-
-## TypeScript Reference
-
-### Core Types
-
-```typescript
-import type {
-  // SDK Configuration
-  NexusNetwork,
-
-  // Operation Parameters
-  BridgeParams,
-  TransferParams,
-  ExecuteParams,
-  BridgeAndExecuteParams,
-
-  // Operation Results
-  TxResult,
-  BridgeResult,
-  TransferResult,
-  ExecuteResult,
-  BridgeAndExecuteResult,
-  BridgeAndExecuteSimulationResult,
-
-  // Simulation Results
-  BridgeSimulationResult,
-  ExecuteSimulation,
-  ExecuteFeeParams,
-
-  // Intent & Hook Types
-  BridgeIntent,
-  BridgeIntentDraft,
-  OnIntentHook,
-  OnIntentHookData,
-  OnAllowanceHook,
-  OnAllowanceHookData,
-  AllowanceHookSource,
-  AllowanceHookSources,
-  IntentRecord,
-  IntentStatus,
-  ListIntentsParams,
-  ListIntentsResult,
-  BridgeAndExecuteOnIntentHookData,
-  BridgeAndExecuteIntent,
-  SwapAndExecuteOnIntentHookData,
-  SwapAndExecuteIntent,
-  ExecuteRequirement,
-  AvailableBalances,
-  Shortfall,
-
-  // Event Types
-  BridgeEvent,
-  BridgeStatus,
-  BridgePlan,
-  BridgePlanStep,
-  BridgeAndExecuteEvent,
-  BridgeAndExecuteStatus,
-  BridgeAndExecutePlan,
-  BridgeAndExecutePlanStep,
-  SwapEvent,
-  SwapStatus,
-  SwapPlan,
-  SwapPlanStep,
-  SwapAndExecuteEvent,
-  SwapAndExecuteStatus,
-  SwapAndExecutePlan,
-  SwapAndExecutePlanStep,
-
-  // Balance Types
-  TokenBalance,
-  ChainBalance,
-  BridgeTokenBalance,
-  SwapTokenBalance,
-
-  // Metadata
-  ChainMetadata,
-  TokenMetadata,
-
-  // Errors
-  NexusError,
-  ValidationError,
-  UserActionError,
-  SimulationError,
-  ExecutionError,
-  BackendError,
-  ExternalServiceError,
-  InternalError,
-  ErrorCategory,
-  ErrorContext,
-  OperationName,
-  ServiceFor,
-  BackendService,
-  ExecutionService,
-  ExternalServiceService,
-  SimulationService,
-  UserActionService,
-} from '@avail-project/nexus-core';
-```
-
-### Swap Types
-
-```typescript
-import type {
-  SwapExactInParams,
-  SwapExactOutParams,
-  SwapMaxParams,
-  SwapMaxResult,
-  SwapResult,
-  SwapAndExecuteParams,
-  SwapAndExecuteResult,
-  SwapExecuteParams,
-  SwapIntent,
-  OnSwapIntentHookData,
-  Source,
-} from '@avail-project/nexus-core';
-```
-
-### Constants
-
-```typescript
-import { ERROR_CODES } from '@avail-project/nexus-core';
-```
-
----
-
-## Utilities
-
-All utilities are tree-shakeable and available as both direct imports and via `client.utils.*`.
-
-```typescript
-import {
-  formatTokenBalance,
-  formatTokenBalanceParts,
-  formatUnits,
-  parseUnits,
-  isValidAddress,
-  truncateAddress,
-  getCoinbaseRates,
-  getSupportedChains,
-} from '@avail-project/nexus-core/utils';
-```
-
-### Token Balance Formatting
-
-Handles tiny values with zero-compression (e.g. `0.0₄8509`), thousand separators, and symbol appending.
-
-```typescript
-// Simple string output
-formatTokenBalance(1.234567, { symbol: 'ETH' });              // "1.2346 ETH"
-formatTokenBalance('0.00008509', { symbol: 'ETH' });          // "~0.0₄8509 ETH"
-formatTokenBalance(1530000n, { decimals: 6, symbol: 'USDC' }); // "1.53 USDC"
-
-// Structured parts for custom UI rendering (e.g. styling the subscript separately)
-const parts = formatTokenBalanceParts('0.000000000000000123', { symbol: 'ETH' });
-// parts.integer    → "0"
-// parts.zeroCount  → 15
-// parts.significant → "123"
-// parts.symbol     → "ETH"
-// parts.text       → "~0.0₁₅123 ETH"
-```
-
-**Options:**
-
-| Option | Default | Description |
-|---|---|---|
-| `decimals` | — | Required when value is `bigint` |
-| `symbol` | — | Token symbol appended to output |
-| `maxFractionDigits` | `4` | Max decimals for normal values |
-| `significantDigits` | `4` | Digits shown after leading zeros in tiny values |
-| `tinyThresholdPower` | `-4` | Exponent threshold for tiny values — magnitudes below `10^power` use zero-compression |
-| `zeroCompress` | `true` | Use subscript notation for leading zeros |
-| `thousandSeparator` | `false` | Add comma separators (e.g. `12,345.67`) |
-| `trimTrailingZeros` | `true` | Remove trailing zeros |
-| `approxTilde` | `true` | Prefix `~` when rounding |
-
-### Unit Conversion
-
-```typescript
-// Parse a human-readable amount to base units (bigint)
-parseUnits('1.5', 18);  // 1500000000000000000n
-
-// Format base units back to a readable string
-formatUnits(1500000000000000000n, 18);  // "1.5"
-```
-
-### Address Utilities
-
-```typescript
-// Validate an EVM address
-isValidAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45'); // true
-
-// Truncate for display: "0x742d...Db45"
-truncateAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45');
-truncateAddress('0x742d35Cc6634C0532925a3b8D4C9db96c4b4Db45', 8, 6); // custom lengths
-```
-
-### Token Logo Fallback
-
-`getFallbackTokenLogoDataUri(symbol, size?)` returns a deterministic gradient SVG data-URI for a token/chain symbol — a stable placeholder when a real logo is missing or 404s. Unlike the formatting/address helpers above, it is exported from the **main entry**, not the `/utils` subpath:
-
-```typescript
-import { getFallbackTokenLogoDataUri } from '@avail-project/nexus-core';
-
-const src = getFallbackTokenLogoDataUri('USDC');      // data:image/svg+xml;...
-const big = getFallbackTokenLogoDataUri('ETH', 256);  // size defaults to 128
-// <img src={token.logo || getFallbackTokenLogoDataUri(token.symbol)} />
-```
-
-### Pricing and Chain Info
-
-```typescript
-// Fetch live USD rates from Coinbase
-const rates = await getCoinbaseRates(); // { ETH: "3245.12", USDC: "1.00", ... }
-```
-
-### Chain & Token Info
-
-```typescript
-// Query supported chains and tokens at runtime (requires network fetch)
-import { getSupportedChains } from '@avail-project/nexus-core/utils';
-const supported = await getSupportedChains('mainnet');
-const previewSupported = await getSupportedChains('mainnet', { channel: 'preview' });
-
-// Or via client instance (synchronous, uses cached deployment data)
-const chains = client.getSupportedChains();
-for (const chain of chains) {
-  console.log(chain.id, chain.name, chain.tokens);
-}
-```
-
----
-
-## Smart Optimizations
-
-### Bridge Skip Optimization
-
-During **bridge-and-execute** and **swap-and-execute** operations, the SDK checks whether sufficient funds already exist on the destination chain:
-
-- **Balance detection** — Verifies token and gas availability
-- **Integrated gas supply** — Provides gas alongside bridged/swapped tokens
-- **Adaptive bridging** — Skips unnecessary bridging or transfers only the shortfall
-- **Seamless fallback** — Uses chain abstraction if local funds are insufficient
-
-```typescript
-const result = await client.bridgeAndExecute({
-  toTokenSymbol: 'USDC',
-  toAmountRaw: 100_000_000n,
-  toChainId: 1,
-  execute: { to: '0x...', data: '0x...' },
-});
-
-if (result.bridgeSkipped) {
-  console.log('Executed using existing balance - no bridge needed!');
-}
-```
-
-### Swap Execution Path
-
-Every source and destination swap executes through the deterministic V2 Safe. 
-
-The Safe has the connected EOA and the SDK's ephemeral account as owners with threshold 1. Its
-address is derived once and is deterministic across supported chains. While the intent is displayed,
-the SDK caches whether that address has bytecode on every execution chain. After approval, it skips
-middleware for deployed Safes and concurrently ensures only the missing ones, awaiting the relevant
-deployment before the first permit, approval, or transaction prompt on that chain. A successful
-ensure updates the same cache so later execution does not repeat the bytecode check. This ensures
-wallet UIs see a deployed contract as the spender instead of warning about an approval to an
-undeployed address.
-
-Read-only allowance, permit-capability, and Safe-code cache requests start while the swap intent is
-displayed and are awaited after approval. Refreshing an intent reuses that work when its cache query
-data is unchanged.
-
-Token-only Safe transactions are sponsor-broadcast through middleware. Native-value Safe
-transactions are submitted by the EOA because the outer transaction must fund the Safe call. The
-ephemeral account remains an owner/signing identity and may hold remote bridge settlement funds; it
-is never the swap executor.
-
-When a swap route bridges without source swaps, it follows the normal bridge custody path: the
-connected EOA owns and signs the RFF and authorizes the vault directly. This applies to Nexus and
-Mayan, including routes nested inside `swapAndExecute`. The route does not transfer source funds to
-the ephemeral holder or require a Safe on its source chains. If a destination swap is required, the
-bridge still fills the destination Safe; otherwise it fills the EOA. Exact-out same-token routes can
-also request destination gas through the bridge intent and fill both outputs directly to the EOA.
-Swap intent fields and plan step types are unchanged; the `eoa_to_ephemeral_transfer` step is simply
-absent.
-
----
-
-## Analytics
-
-The Nexus SDK includes **built-in analytics** powered by PostHog to help improve the SDK and understand usage patterns. Analytics are **enabled by default** but can be easily customized or disabled.
-
-### Default Behavior
-
-By default, the SDK sends anonymous telemetry data to Avail's PostHog instance:
-
-- SDK initialization events
-- Operation performance metrics
-- Session duration and success rates
-- Error tracking (without sensitive data)
-
-The SDK does **not** automatically call `analytics.identify()`.
-Transaction amounts can be anonymized via `privacy.anonymizeAmounts`, and analytics can be fully disabled via `enabled: false`.
-
-### Disabling Analytics
-
-```typescript
-const client = createNexusClient({
-  network: 'mainnet',
-  analytics: { enabled: false },
-});
-```
-
-### Privacy Controls
-
-```typescript
-const client = createNexusClient({
-  network: 'mainnet',
-  analytics: {
-    enabled: true,
-    privacy: {
-      anonymizeWallets: true, // Hash wallet addresses
-      anonymizeAmounts: true, // Exclude transaction amounts
-    },
-  },
-});
-```
-
-### Custom Analytics (BYO PostHog)
-
-```typescript
-const client = createNexusClient({
-  network: 'mainnet',
-  analytics: {
-    enabled: true,
-    posthogApiKey: 'your-posthog-key',
-    posthogApiHost: 'https://your-posthog-instance.com',
-    appMetadata: {
-      appName: 'My DApp',
-      appVersion: '1.0.0',
-      appUrl: 'https://mydapp.com',
-    },
-  },
-});
-```
-
-### Accessing Analytics Programmatically
-
-```typescript
-// Track custom events
-client.analytics.track('custom_event', { foo: 'bar' });
-
-// Identify users
-client.analytics.identify('user-id', { plan: 'premium' });
-
-// Check if analytics is enabled
-if (client.analytics.isEnabled()) {
-  console.log('Analytics active');
-}
-
-// Disable/enable at runtime
-client.analytics.disable();
-client.analytics.enable();
-```
-
----
-
-## Supported Networks & Tokens
-
-The list of supported chains and tokens is **fetched dynamically from the live middleware deployment** — the SDK ships with no hard-coded chain or token tables. Query the runtime APIs to discover what's currently available.
-
-**Async standalone** (no initialized client required):
-
-```typescript
-import { getSupportedChains } from '@avail-project/nexus-core/utils';
-
-const chains = await getSupportedChains('mainnet'); // or 'canary' / 'testnet'
-for (const chain of chains) {
-  console.log(chain.id, chain.name, chain.swapSupported);
-  for (const token of chain.tokens) {
-    console.log(' ', token.symbol, token.contractAddress, token.decimals);
-  }
-}
-```
-
-The standalone helper defaults to `stable`. Pass `{ channel: 'preview' }` as its
-second argument to include preview chains.
-
-**Sync via an initialized client** (uses the network and channel passed to `createNexusClient`):
-
-```typescript
-const chains = client.getSupportedChains();
-```
-
-**Lower-level lookups** via the chain catalogue exposed on the client:
-
-```typescript
-const usdcOnBase = client.chainList.getTokenInfoBySymbol(8453, 'USDC');
-const ethNative = client.chainList.getNativeToken(1);
-```
-
-Each chain entry includes `swapSupported: boolean` — `true` unless the deployment explicitly disables swaps on that chain. Filter on it to show only the chains a swap can use as a source or destination.
-
-Backend deployments may change which chains and tokens are live without an SDK release, so always treat the runtime API as the source of truth.
-
----
-
-## Common Pitfalls
-
-- **Amounts are raw integer units.** SDK methods expect `bigint` amounts in the token's smallest unit (e.g., `100_000_000n` for 100 USDC with 6 decimals), not human-readable decimal strings. Use `parseUnits('100', 6)` to convert.
-
-- **Bridge uses token symbols, swap uses contract addresses.** `bridge`/`bridgeAndTransfer`/`bridgeAndExecute` take `toTokenSymbol: 'USDC'`, while `swapWithExactIn`/`swapWithExactOut`/`swapAndExecute` take `toTokenAddress: '0x...'`. The same split applies to `tokenApproval` inside `execute`: bridge `execute`/`bridgeAndExecute` use `tokenApproval.toTokenSymbol`; `swapAndExecute` uses `tokenApproval.toTokenAddress`.
-
-- **`initialize()` and `setEVMProvider()` are independent.** `initialize()` fetches deployment data (chains, tokens, vault contracts) and is required before any chain-dependent method (`bridge`, `swap`, `execute`, `getBalances*`, `listIntents`, …) — those will throw `SDK_NOT_INITIALIZED` otherwise. `setEVMProvider()` attaches a wallet and can be called before, after, or independently of `initialize()`. Most apps just run both at startup.
-
-- **Create a new client on account change.** The client is tied to a specific provider/address. Calling `setEVMProvider()` again with the **same** provider instance is a no-op (it short-circuits when the provider hasn't changed), so it cannot be used to swap accounts. On wallet disconnect or account switch, build a fresh client and re-run `initialize()` + `setEVMProvider()`.
-
-- **EOA wallet operations are single-chain.** Browser wallets expose one active chain context for the connected user wallet. The SDK serializes wallet-touching work such as chain switching, prompts, permit signatures, direct approvals, and EOA transaction sends. It may still parallelize non-wallet work like quotes, public-client reads, Safe deployment, sponsored Safe execution, and receipt waits. Avoid running multiple SDK operations against the same connected wallet at the same time unless you can tolerate wallet prompt and chain-switch contention.
-
-- **Composite `onIntent` is top-level.** `bridgeAndExecute()` and `swapAndExecute()` use `options.onIntent`, not `options.hooks.onIntent`. Even when bridge/swap is skipped, `allow()` still gates execution.
-
-- **Default allowance is `'min'`.** If no `onAllowance` hook is provided for bridge operations, the SDK auto-approves with `'min'` (exact amount needed).
-
----
-
-## Resources
-
-- **GitHub:** [availproject/nexus-sdk](https://github.com/availproject/nexus-sdk)
-- **Documentation:** [docs.availproject.org](https://docs.availproject.org/nexus/avail-nexus-sdk)
-- **Discord:** [Avail Discord](https://discord.gg/availproject)
+Remove local max/routing helpers, Safe and ephemeral-key configuration, `onAllowance`, and old
+bridge/swap plan events. Use `options.hooks`, `IntentQuote`, `IntentEvent`, and `IntentResult`.
+Utility functions are available from `@avail-project/nexus-core/utils` and `client.utils`.

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import type {
   ExecutionProgressState,
   NormalizedStep,
+  OperationResult,
   ProgressHeader,
   ProgressPhase,
   ProgressResult,
@@ -13,53 +14,25 @@ import type {
 type RawStep = {
   id: string;
   type: string;
-  method?: "approval" | "permit";
+  chainId?: number;
+  tokenAddress?: string;
   chain?: { id: number; name: string; logo: string };
-  asset?: { symbol: string; amount: string; logo?: string };
-  amount?: { symbol: string; amount: string; logo?: string };
   token?: { symbol: string; logo?: string };
-  swaps?: Array<{
-    input: { symbol: string; amount: string; logo?: string };
-    output: { symbol: string; amount: string; logo?: string };
-  }>;
   to?: string;
 };
 
 const STEP_LABELS: Record<string, (step: RawStep) => string> = {
-  allowance: (s) => {
-    const action = s.method === "permit" ? "Permit" : s.method === "approval" ? "Approve" : "Authorize";
-    const amount = s.amount?.amount ? `${s.amount.amount} ` : "";
-    return `${action} ${amount}${s.token?.symbol ?? "token"} on ${s.chain?.name ?? "chain"}`;
-  },
-  source_swap: (s) => `Swap on ${s.chain?.name ?? "source"}`,
-  eoa_to_ephemeral_transfer: (s) => `Transfer on ${s.chain?.name ?? "chain"}`,
-  bridge_deposit: (s) => `Deposit to bridge on ${s.chain?.name ?? "chain"}`,
-  bridge_intent_submission: () => "Submit bridge intent",
-  bridge_fill: (s) => `Bridge to ${s.chain?.name ?? "destination"}`,
-  destination_swap: (s) => `Swap on ${s.chain?.name ?? "destination"}`,
-  allowance_approval: (s) => `Approve ${s.token?.symbol ?? "token"} on ${s.chain?.name ?? "chain"}`,
-  request_signing: () => "Sign request",
-  request_submission: () => "Submit RFF",
-  vault_deposit: (s) => `Deposit on ${s.chain?.name ?? "chain"}`,
   execute_approval: (s) => `Approve ${s.token?.symbol ?? "token"}`,
   execute_transaction: (s) => `Execute on ${s.chain?.name ?? "chain"}`,
+  erc20_approval: (s) => `Approve token on ${s.chain?.name ?? "source chain"}`,
+  source_approval_signature: () => "Sign token approval",
+  intent_signature: () => "Sign intent",
+  native_transaction: (s) => `Submit source transaction on ${s.chain?.name ?? "chain"}`,
+  intent_submission: () => "Submit intent",
+  intent_fulfillment: () => "Wait for fulfillment",
 };
 
 function extractToken(step: RawStep): NormalizedStep["token"] {
-  if (step.amount) {
-    return { symbol: step.amount.symbol, amount: step.amount.amount, logo: step.amount.logo };
-  }
-  if (step.asset) {
-    return { symbol: step.asset.symbol, amount: step.asset.amount, logo: step.asset.logo };
-  }
-  if (step.swaps?.length) {
-    if (step.type === "destination_swap") {
-      const last = step.swaps[step.swaps.length - 1]!;
-      return { symbol: last.output.symbol, amount: last.output.amount, logo: last.output.logo };
-    }
-    const first = step.swaps[0]!;
-    return { symbol: first.input.symbol, amount: first.input.amount, logo: first.input.logo };
-  }
   if (step.token) {
     return { symbol: step.token.symbol, amount: "", logo: step.token.logo };
   }
@@ -68,36 +41,30 @@ function extractToken(step: RawStep): NormalizedStep["token"] {
 
 function normalizeStep(raw: RawStep): NormalizedStep {
   const labelFn = STEP_LABELS[raw.type];
+  const chain = raw.chain ?? (raw.chainId
+    ? { id: raw.chainId, name: `Chain ${raw.chainId}`, logo: "" }
+    : undefined);
   return {
     id: raw.id,
     type: raw.type,
     label: labelFn ? labelFn(raw) : raw.type.replace(/_/g, " "),
     state: "pending",
-    chain: raw.chain,
+    chain,
     token: extractToken(raw),
   };
 }
 
 /* ── State mapping from SDK events ───────────────────────────────── */
 
-function mapStatusToPhase(status: string): ProgressPhase | null {
+export function mapStatusToPhase(status: string): ProgressPhase | null {
   switch (status) {
-    case "preparing":
-      return "preparing";
-    case "route_building":
-      return "route_building";
-    case "intent_building":
-      return "intent_building";
-    case "route_ready":
-    case "intent_ready":
-    case "awaiting_approval":
-    case "awaiting_allowance_selection":
-      return "awaiting_approval";
-    case "approved":
-    case "executing":
-      return "executing";
     case "completed":
       return "completed";
+    case "fulfilled":
+      return "executing";
+    case "created":
+    case "deposited":
+      return "executing";
     default:
       return null;
   }
@@ -105,13 +72,8 @@ function mapStatusToPhase(status: string): ProgressPhase | null {
 
 function mapProgressState(state: string): StepState {
   switch (state) {
-    case "wallet_prompted":
     case "started":
-    case "waiting":
       return "active";
-    case "submitted":
-      return "submitted";
-    case "confirmed":
     case "completed":
       return "done";
     case "failed":
@@ -163,34 +125,24 @@ export function useExecutionProgress(operationType: OperationType) {
       const ev = event as {
         type?: string;
         status?: string;
-        stepType?: string;
         state?: string;
         step?: RawStep;
-        plan?: { steps?: RawStep[] };
+        quote?: { plan?: { steps?: RawStep[] } };
         txHash?: string;
         explorerUrl?: string;
         error?: string;
-        intentRequestHash?: string;
       };
 
       if (!ev.type) return;
 
       const draft = ensureDraft();
 
-      // Plan preview/confirmed — populate steps
-      if (ev.type === "plan_preview" || ev.type === "plan_confirmed") {
-        if (ev.plan?.steps) {
-          draft.steps = ev.plan.steps.map(normalizeStep);
-          console.log(`[plan ${ev.type}]`, {
-            rawSteps: ev.plan.steps,
-            normalized: draft.steps.map((s) => ({
-              id: s.id,
-              type: s.type,
-              label: s.label,
-              chain: s.chain?.name,
-            })),
-          });
+      // Better Intent quote events carry the canonical API execution plan.
+      if (ev.type === "quote") {
+        if (ev.quote?.plan?.steps) {
+          draft.steps = ev.quote.plan.steps.map(normalizeStep);
         }
+        draft.phase = "awaiting_approval";
         scheduleFlush();
         return;
       }
@@ -200,13 +152,6 @@ export function useExecutionProgress(operationType: OperationType) {
         const phase = mapStatusToPhase(ev.status);
         if (phase) {
           draft.phase = phase;
-          if (ev.status === "executing") {
-            const firstPending = draft.steps.find((step) => step.state === "pending");
-            if (firstPending?.type === "allowance") {
-              firstPending.state = "active";
-              firstPending.rawState = "started";
-            }
-          }
           // On completion, mark any remaining active/submitted steps as done
           if (phase === "completed") {
             if (draft.completedAt === undefined) draft.completedAt = Date.now();
@@ -222,73 +167,31 @@ export function useExecutionProgress(operationType: OperationType) {
         return;
       }
 
-      // Progress events — update individual steps
-      if (ev.type === "plan_progress" && ev.stepType) {
-        console.log(`[plan_progress:raw]`, {
-          event: ev
-        });
-        const stepId = ev.step?.id;
-        const target = stepId
-          ? draft.steps.find((s) => s.id === stepId)
-          : draft.steps.find((s) => s.type === ev.stepType && s.state !== "done");
-
-        if (target) {
-          if (ev.state !== "failed") {
-            const completedAt = Date.now();
-            for (const previous of draft.steps.slice(0, draft.steps.indexOf(target))) {
-              if (previous.type === "allowance" && previous.state !== "done") {
-                previous.state = "done";
-                previous.completedAt ??= completedAt;
-              }
-            }
-          }
-          const prevState = target.state;
-          target.state = mapProgressState(ev.state ?? "active");
-          target.rawState = ev.state;
-          if (target.state === "done") {
-            const next = draft.steps[draft.steps.indexOf(target) + 1];
-            if (next?.type === "allowance" && next.state === "pending") {
-              next.state = "active";
-              next.rawState = "started";
-            }
-          }
-          if (ev.txHash) target.txHash = ev.txHash;
-          if (ev.explorerUrl) target.explorerUrl = ev.explorerUrl;
-          if (ev.error) target.error = ev.error;
-          if (ev.intentRequestHash && !target.explorerUrl) {
-            target.explorerUrl = ev.explorerUrl;
-          }
-          // Stamp completion time the first time we transition into a terminal state.
-          if (
-            (target.state === "done" || target.state === "failed") &&
-            prevState !== target.state &&
-            target.completedAt === undefined
-          ) {
-            target.completedAt = Date.now();
-            console.log(`[plan_progress ${target.state}] ${target.label}`, {
-              rawEvent: ev,
-              rawStep: ev.step,
-              normalized: { id: target.id, type: target.type, label: target.label },
-              allSteps: draft.steps.map((s) => ({
-                id: s.id,
-                type: s.type,
-                label: s.label,
-                state: s.state,
-              })),
-            });
-          }
-
-          // Collect result links from completed steps. The link label can
-          // diverge from the step label — e.g. the in-progress step reads
-          // "Submit request" while the end-state link reads "View RFF".
-          if (target.state === "done" && target.explorerUrl) {
-            const exists = draft.resultLinks.some((l) => l.href === target.explorerUrl);
-            if (!exists) {
-              const linkLabel = target.type === "request_submission" ? "View RFF" : target.label;
-              draft.resultLinks.push({ label: linkLabel, href: target.explorerUrl });
-            }
-          }
+      // Better Intent emits one event per canonical plan-step transition.
+      if (ev.type === "step" && ev.step) {
+        let target = draft.steps.find((step) => step.id === ev.step?.id);
+        if (!target) {
+          target = normalizeStep(ev.step);
+          draft.steps.push(target);
         }
+        const previousState = target.state;
+        target.state = mapProgressState(ev.state ?? "started");
+        target.rawState = ev.state;
+        if (ev.txHash) target.txHash = ev.txHash;
+        if (ev.explorerUrl) target.explorerUrl = ev.explorerUrl;
+        if (ev.error) target.error = ev.error;
+        if (
+          (target.state === "done" || target.state === "failed") &&
+          previousState !== target.state &&
+          target.completedAt === undefined
+        ) {
+          target.completedAt = Date.now();
+        }
+        if (target.state === "done" && target.explorerUrl &&
+          !draft.resultLinks.some((link) => link.href === target.explorerUrl)) {
+          draft.resultLinks.push({ label: target.label, href: target.explorerUrl });
+        }
+        draft.phase = target.state === "failed" ? "failed" : "executing";
         scheduleFlush();
       }
     },
@@ -345,6 +248,25 @@ export function useExecutionProgress(operationType: OperationType) {
     [ensureDraft, scheduleFlush],
   );
 
+  const complete = useCallback(
+    (result: OperationResult) => {
+      const draft = ensureDraft();
+      const destination = result.richResult?.route
+        .filter((step) => step.type === "destination")
+        .at(-1);
+      if (draft.header && destination) {
+        draft.header = { ...draft.header, amount: destination.amount };
+      }
+      for (const hash of result.hashes) {
+        if (hash.href && !draft.resultLinks.some((link) => link.href === hash.href)) {
+          draft.resultLinks.push({ label: hash.label, href: hash.href });
+        }
+      }
+      handleEvent({ type: "status", status: "completed" });
+    },
+    [ensureDraft, handleEvent],
+  );
+
   const closeModal = useCallback(() => {
     draftRef.current = null;
     if (flushRef.current !== null) {
@@ -354,5 +276,5 @@ export function useExecutionProgress(operationType: OperationType) {
     setState(null);
   }, []);
 
-  return { state, openModal, closeModal, handleEvent, handleError, attachResult };
+  return { state, openModal, closeModal, handleEvent, handleError, attachResult, complete };
 }

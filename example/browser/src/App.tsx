@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Route, Routes, useLocation } from "react-router";
+import { Route, Routes } from "react-router";
 import { useConnection } from "wagmi";
 import { Toaster } from "sonner";
-import type { TokenBalance } from "@avail-project/nexus-core";
-import type { ExecutionProgressState } from "./lib/types";
-import type { ChannelMode, NetworkMode } from "./lib/types";
+import type { ExecutionProgressState, NetworkMode, TokenBalance } from "./lib/types";
 import { getTabsForNetwork } from "./lib/tabs";
 import { useNexusSdk } from "./lib/nexus";
 import { AppShell } from "./components/AppShell";
 import { FlowModal } from "./components/FlowModal";
 import Home from "./pages/Home";
-import StressTest from "./pages/StressTest";
 import "./App.css";
 
 const THEMES = ["charm", "ocean", "ember"] as const;
@@ -49,7 +46,7 @@ function useThemeAndMode() {
   };
 }
 
-const NETWORK_MODES: readonly NetworkMode[] = ["mainnet", "canary", "testnet"];
+const NETWORK_MODES: readonly NetworkMode[] = ["mainnet", "canary"];
 
 function useNetwork() {
   const [network, setNetwork] = useState<NetworkMode>(() => {
@@ -67,35 +64,9 @@ function useNetwork() {
   return { network, selectNetwork: setNetwork };
 }
 
-function useForceMayan() {
-  const [forceMayan, setForceMayan] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("nexus-force-mayan") === "1";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem("nexus-force-mayan", forceMayan ? "1" : "0");
-  }, [forceMayan]);
-
-  return { forceMayan, toggleForceMayan: () => setForceMayan((value) => !value) };
-}
-
-function useChannel() {
-  const [channel, setChannel] = useState<ChannelMode>(() => {
-    if (typeof window === "undefined") return "stable";
-    return window.localStorage.getItem("nexus-channel") === "preview" ? "preview" : "stable";
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem("nexus-channel", channel);
-  }, [channel]);
-
-  return { channel, selectChannel: setChannel };
-}
-
 const MOCK_COMPLETED_STATE: ExecutionProgressState = {
   phase: "completed",
-  operationType: "bridge",
+  operationType: "swap",
   resultLinks: [
     { label: "View intent", href: "#" },
     { label: "Deposit tx", href: "#" },
@@ -105,31 +76,28 @@ const MOCK_COMPLETED_STATE: ExecutionProgressState = {
     { id: "2", type: "request_signing", label: "Sign request", state: "done" },
     { id: "3", type: "vault_deposit", label: "Deposit on Ethereum", state: "done", chain: { id: 1, name: "Ethereum", logo: "" }, token: { symbol: "USDC", amount: "100.00" } },
     { id: "4", type: "request_submission", label: "Submit RFF", state: "done" },
-    { id: "5", type: "bridge_fill", label: "Bridge to Arbitrum", state: "done", chain: { id: 42161, name: "Arbitrum", logo: "" } },
+    { id: "5", type: "intent_fulfillment", label: "Fulfill swap on Arbitrum", state: "done", chain: { id: 42161, name: "Arbitrum", logo: "" } },
   ],
 };
 
 const MOCK_FAILED_STATE: ExecutionProgressState = {
   phase: "failed",
-  operationType: "bridge",
+  operationType: "swap",
   resultLinks: [],
   steps: [
     { id: "1", type: "allowance_approval", label: "Approve USDC on Ethereum", state: "done", chain: { id: 1, name: "Ethereum", logo: "" }, token: { symbol: "USDC", amount: "100.00" } },
     { id: "2", type: "request_signing", label: "Sign request", state: "done" },
     { id: "3", type: "vault_deposit", label: "Deposit on Ethereum", state: "failed", chain: { id: 1, name: "Ethereum", logo: "" }, token: { symbol: "USDC", amount: "100.00" }, error: "Transaction reverted: insufficient gas" },
     { id: "4", type: "request_submission", label: "Submit RFF", state: "pending" },
-    { id: "5", type: "bridge_fill", label: "Bridge to Arbitrum", state: "pending", chain: { id: 42161, name: "Arbitrum", logo: "" } },
+    { id: "5", type: "intent_fulfillment", label: "Fulfill swap on Arbitrum", state: "pending", chain: { id: 42161, name: "Arbitrum", logo: "" } },
   ],
 };
 
 export default function App() {
   const { address, isConnected } = useConnection();
   const { network, selectNetwork } = useNetwork();
-  const { channel, selectChannel } = useChannel();
-  const { forceMayan, toggleForceMayan } = useForceMayan();
   const { mode, toggleMode } = useThemeAndMode();
   const queryClient = useQueryClient();
-  const location = useLocation();
 
   // Debug: Cmd/Ctrl+Shift+K to preview success celebration
   const [debugModal, setDebugModal] = useState<ExecutionProgressState | null>(null);
@@ -149,12 +117,11 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const sdk = useNexusSdk(network, channel, forceMayan);
+  const sdk = useNexusSdk(network);
 
   const tabs = useMemo(() => getTabsForNetwork(network), [network]);
 
-  const isBridgeTab = location.pathname.startsWith("/bridge");
-  const activeBalanceKey = isBridgeTab ? "bridge-balances" : "swap-balances";
+  const activeBalanceKey = "swap-balances";
 
   // Read balance data from cache without creating a skipToken observer
   const [cachedAssets, setCachedAssets] = useState<TokenBalance[]>([]);
@@ -186,10 +153,6 @@ export default function App() {
       <AppShell
         network={network}
         onSelectNetwork={selectNetwork}
-        channel={channel}
-        onSelectChannel={selectChannel}
-        forceMayan={forceMayan}
-        onToggleForceMayan={toggleForceMayan}
         mode={mode}
         onToggleMode={toggleMode}
         tabs={tabs}
@@ -199,14 +162,9 @@ export default function App() {
       >
         <Routes>
           <Route
-            path="/stress-test"
-            element={<StressTest isConnected={isConnected} channel={channel} />}
-          />
-          <Route
             path="/*"
             element={
               <Home
-                key={channel}
                 network={network}
                 tabs={tabs}
                 client={sdk.client}
@@ -214,9 +172,7 @@ export default function App() {
                 address={address}
                 isConnected={isConnected}
                 onSwapIntent={sdk.onSwapIntent}
-                onBridgeIntent={sdk.onBridgeIntent}
                 onSwapExecIntent={sdk.onSwapExecIntent}
-                onBridgeExecIntent={sdk.onBridgeExecIntent}
                 swapIntent={sdk.swapIntent}
                 swapIntentPending={sdk.swapIntentPending}
                 swapIntentRefreshing={sdk.swapIntentRefreshing}
@@ -224,13 +180,6 @@ export default function App() {
                 approveSwapIntent={sdk.approveSwapIntent}
                 denySwapIntent={sdk.denySwapIntent}
                 clearSwapIntent={sdk.clearSwapIntent}
-                bridgeIntent={sdk.bridgeIntent}
-                bridgeIntentPending={sdk.bridgeIntentPending}
-                bridgeIntentRefreshing={sdk.bridgeIntentRefreshing}
-                bridgeIntentApproved={sdk.bridgeIntentApproved}
-                approveBridgeIntent={sdk.approveBridgeIntent}
-                denyBridgeIntent={sdk.denyBridgeIntent}
-                clearBridgeIntent={sdk.clearBridgeIntent}
                 swapExecIntent={sdk.swapExecIntent}
                 swapExecIntentPending={sdk.swapExecIntentPending}
                 swapExecIntentRefreshing={sdk.swapExecIntentRefreshing}
@@ -238,13 +187,6 @@ export default function App() {
                 approveSwapExecIntent={sdk.approveSwapExecIntent}
                 denySwapExecIntent={sdk.denySwapExecIntent}
                 clearSwapExecIntent={sdk.clearSwapExecIntent}
-                bridgeExecIntent={sdk.bridgeExecIntent}
-                bridgeExecIntentPending={sdk.bridgeExecIntentPending}
-                bridgeExecIntentRefreshing={sdk.bridgeExecIntentRefreshing}
-                bridgeExecIntentApproved={sdk.bridgeExecIntentApproved}
-                approveBridgeExecIntent={sdk.approveBridgeExecIntent}
-                denyBridgeExecIntent={sdk.denyBridgeExecIntent}
-                clearBridgeExecIntent={sdk.clearBridgeExecIntent}
               />
             }
           />

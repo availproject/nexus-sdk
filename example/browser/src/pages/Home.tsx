@@ -1,9 +1,7 @@
 import { Navigate, Route, Routes } from "react-router";
 import type { NexusClient } from "@avail-project/nexus-core";
-import type { NetworkMode, TabConfig } from "../lib/types";
+import type { ExecuteContext, NetworkMode, TabConfig } from "../lib/types";
 import type {
-  BridgeAndExecuteIntentViewModel,
-  BridgeIntentViewModel,
   SwapAndExecuteIntentViewModel,
   SwapIntentViewModel,
 } from "../lib/nexus";
@@ -17,10 +15,8 @@ type HomeProps = {
   ready: boolean;
   address?: `0x${string}`;
   isConnected: boolean;
-  onSwapIntent: (data: any) => void;
-  onBridgeIntent: (data: any) => void;
-  onSwapExecIntent: (data: any) => void;
-  onBridgeExecIntent: (data: any) => void;
+  onSwapIntent: ExecuteContext["onSwapIntent"];
+  onSwapExecIntent: ExecuteContext["onSwapExecIntent"];
   swapIntent: SwapIntentViewModel | null;
   swapIntentPending: boolean;
   swapIntentRefreshing: boolean;
@@ -28,13 +24,6 @@ type HomeProps = {
   approveSwapIntent: () => void;
   denySwapIntent: () => void;
   clearSwapIntent: () => void;
-  bridgeIntent: BridgeIntentViewModel | null;
-  bridgeIntentPending: boolean;
-  bridgeIntentRefreshing: boolean;
-  bridgeIntentApproved: boolean;
-  approveBridgeIntent: () => void;
-  denyBridgeIntent: () => void;
-  clearBridgeIntent: () => void;
   swapExecIntent: SwapAndExecuteIntentViewModel | null;
   swapExecIntentPending: boolean;
   swapExecIntentRefreshing: boolean;
@@ -42,25 +31,17 @@ type HomeProps = {
   approveSwapExecIntent: () => void;
   denySwapExecIntent: () => void;
   clearSwapExecIntent: () => void;
-  bridgeExecIntent: BridgeAndExecuteIntentViewModel | null;
-  bridgeExecIntentPending: boolean;
-  bridgeExecIntentRefreshing: boolean;
-  bridgeExecIntentApproved: boolean;
-  approveBridgeExecIntent: () => void;
-  denyBridgeExecIntent: () => void;
-  clearBridgeExecIntent: () => void;
 };
 
 export default function Home({
+  network,
   tabs,
   client,
   ready,
   address,
   isConnected,
   onSwapIntent,
-  onBridgeIntent,
   onSwapExecIntent,
-  onBridgeExecIntent,
   swapIntent,
   swapIntentPending,
   swapIntentRefreshing,
@@ -68,13 +49,6 @@ export default function Home({
   approveSwapIntent,
   denySwapIntent,
   clearSwapIntent,
-  bridgeIntent,
-  bridgeIntentPending,
-  bridgeIntentRefreshing,
-  bridgeIntentApproved,
-  approveBridgeIntent,
-  denyBridgeIntent,
-  clearBridgeIntent,
   swapExecIntent,
   swapExecIntentPending,
   swapExecIntentRefreshing,
@@ -82,28 +56,15 @@ export default function Home({
   approveSwapExecIntent,
   denySwapExecIntent,
   clearSwapExecIntent,
-  bridgeExecIntent,
-  bridgeExecIntentPending,
-  bridgeExecIntentRefreshing,
-  bridgeExecIntentApproved,
-  approveBridgeExecIntent,
-  denyBridgeExecIntent,
-  clearBridgeExecIntent,
 }: HomeProps) {
-  if (!isConnected) {
-    return <ConnectGate />;
-  }
-
-  const defaultTab = tabs[0];
+  const defaultTab = isConnected ? tabs[0] : tabs.find((tab) => tab.id === "swap-exact-in");
   if (!defaultTab) return null;
   const sdkProps = {
     client,
     ready,
     address,
     onSwapIntent,
-    onBridgeIntent,
     onSwapExecIntent,
-    onBridgeExecIntent,
     swapIntent,
     swapIntentPending,
     swapIntentRefreshing,
@@ -111,13 +72,6 @@ export default function Home({
     approveSwapIntent,
     denySwapIntent,
     clearSwapIntent,
-    bridgeIntent,
-    bridgeIntentPending,
-    bridgeIntentRefreshing,
-    bridgeIntentApproved,
-    approveBridgeIntent,
-    denyBridgeIntent,
-    clearBridgeIntent,
     swapExecIntent,
     swapExecIntentPending,
     swapExecIntentRefreshing,
@@ -125,13 +79,6 @@ export default function Home({
     approveSwapExecIntent,
     denySwapExecIntent,
     clearSwapExecIntent,
-    bridgeExecIntent,
-    bridgeExecIntentPending,
-    bridgeExecIntentRefreshing,
-    bridgeExecIntentApproved,
-    approveBridgeExecIntent,
-    denyBridgeExecIntent,
-    clearBridgeExecIntent,
   };
 
   return (
@@ -141,7 +88,9 @@ export default function Home({
         <Route
           key={tab.id}
           path={tab.path}
-          element={<OperationPage key={tab.id} config={tab} {...sdkProps} />}
+          element={isConnected || tab.id === "swap-exact-in"
+            ? <OperationPage key={`${network}:${tab.id}`} config={tab} {...sdkProps} />
+            : <ConnectGate />}
         />
       ))}
       <Route path="*" element={<Navigate to={defaultTab.path} replace />} />

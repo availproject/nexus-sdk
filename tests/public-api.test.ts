@@ -1,72 +1,198 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as rootModule from '../src';
 import * as utilsModule from '../src/utils';
-import { AnalyticsManager, IntentStatus, NexusAnalyticsEvents } from '../src';
+import { AnalyticsManager, getIntentQuoteFailure, IntentStatus, NexusAnalyticsEvents } from '../src';
 import type {
-  BridgeAndExecuteResult,
-  BridgeResult,
-  BridgeSimulationResult,
-  ChainBalance,
+  IntentBalance,
+  IntentChainMetadata,
+  IntentTokenQuery,
+  IntentTokenPage,
+  IntentSourceTokenPage,
+  IntentDestinationTokenPage,
+  IntentEvent,
+  IntentFees,
+  IntentProviderSupport,
+  IntentPlanStep,
+  IntentStepError,
+  IntentHistoryRecord,
+  IntentHistoryResult,
+  IntentHookData,
+  IntentOperationOptions,
+  IntentLegStatus,
+  IntentQuote,
+  IntentRouteConstraints,
+  IntentResult,
   IntentRecord,
+  IntentStatusResponse,
+  IntentToken,
   ListIntentsParams,
   ListIntentsResult,
   OperationName,
+  NexusClient,
   SwapAndExecuteResult,
-  SwapAllowanceStep,
-  SwapMaxResult,
   SwapResult as SwapResultType,
   SwapResult,
-  TokenBalance,
+  TokenRef,
   TxResult,
 } from '../src';
 
 describe('public api exports', () => {
-  it('accepts optional stable and preview channels on public configuration', () => {
-    type ClientConfig = NonNullable<Parameters<typeof rootModule.createNexusClient>[0]>;
-    type ChainOptions = NonNullable<Parameters<typeof utilsModule.getSupportedChains>[1]>;
-    expectTypeOf<ClientConfig['channel']>().toEqualTypeOf<'stable' | 'preview' | undefined>();
-    expectTypeOf<ChainOptions['channel']>().toEqualTypeOf<'stable' | 'preview' | undefined>();
-    expectTypeOf<rootModule.NexusClient['utils']['getSupportedChains']>().toEqualTypeOf<
-      typeof utilsModule.getSupportedChains
+  it('exposes token verification and an opt-in for unverified token queries', () => {
+    expectTypeOf<IntentToken['verified']>().toEqualTypeOf<boolean>();
+    expectTypeOf<IntentBalance['verified']>().toEqualTypeOf<boolean>();
+    expectTypeOf<IntentTokenQuery['includeUnverified']>().toEqualTypeOf<boolean | undefined>();
+  });
+  it('exposes execution eligibility and normalized quote warnings for previews', () => {
+    expectTypeOf<IntentHookData['execution']>().toEqualTypeOf<
+      { possible: true } | { possible: false; cause: 'not-connected' | 'insufficient-balance' }
+    >();
+    expectTypeOf<Extract<keyof IntentHookData, 'isConnected'>>().toEqualTypeOf<never>();
+    expectTypeOf<IntentQuote['isExecutable']>().toEqualTypeOf<boolean>();
+    expectTypeOf<IntentQuote['executionWarnings'][number]['shortfalls'][number]>().toEqualTypeOf<{
+      chainId: number;
+      tokenAddress: `0x${string}`;
+      requiredRaw: bigint;
+      actualRaw: bigint;
+    }>();
+  });
+  it('exposes composite funding previews for swap execution and refresh', () => {
+    type Options = NonNullable<Parameters<NexusClient['swapAndExecute']>[1]>;
+    type Hook = Parameters<NonNullable<NonNullable<Options['hooks']>['onIntent']>>[0];
+    expectTypeOf<Hook['intent']>().toEqualTypeOf<rootModule.SwapAndExecuteIntent>();
+    expectTypeOf<ReturnType<Hook['refresh']>>().toEqualTypeOf<Promise<rootModule.SwapAndExecuteIntent>>();
+    expectTypeOf<Extract<rootModule.SwapAndExecuteIntent, { swapRequired: false }>['quote']>()
+      .toEqualTypeOf<undefined>();
+  });
+  it('requires gas for swap execution while keeping standalone gas optional', () => {
+    expectTypeOf<rootModule.SwapExecuteParams['gas']>().toEqualTypeOf<bigint>();
+    expectTypeOf<Parameters<NexusClient['swapAndExecute']>[0]['execute']>()
+      .toEqualTypeOf<rootModule.SwapExecuteParams>();
+    expectTypeOf<rootModule.ExecuteParams['gas']>().toEqualTypeOf<bigint | undefined>();
+  });
+
+  it('exposes getBalances with getBalancesForSwap as an alias', () => {
+    expectTypeOf<NexusClient['getBalances']>().toEqualTypeOf<() => Promise<IntentBalance[]>>();
+    expectTypeOf<NexusClient['getBalancesForSwap']>().toEqualTypeOf<NexusClient['getBalances']>();
+    const client = rootModule.createNexusClient({ clientId: 'test-client', analytics: { enabled: false } });
+    expect(client.getBalances).toBeTypeOf('function');
+    expect(client.getBalancesForSwap).toBe(client.getBalances);
+    client.destroy();
+  });
+
+  it('identifies execute approval tokens by address for execution and simulation', () => {
+    type Params = Parameters<NexusClient['execute']>[0];
+    expectTypeOf<NonNullable<Params['tokenApproval']>>().toEqualTypeOf<{
+      toTokenAddress: `0x${string}`;
+      amount: bigint;
+      spender: `0x${string}`;
+    }>();
+    expectTypeOf<Parameters<NexusClient['simulateExecute']>[0]>().toEqualTypeOf<Params>();
+  });
+
+  it('keeps amount conversion outside the client', () => {
+    const client = rootModule.createNexusClient({ clientId: 'test-client', analytics: { enabled: false } });
+    expect(Object.keys(client)).not.toContain('convertTokenReadableAmountToBigInt');
+    client.destroy();
+  });
+
+  it('removes bridge entrypoints and telemetry from the public client', () => {
+    const removed = [
+      'bridge',
+      'bridgeAndTransfer',
+      'simulateBridge',
+      'simulateBridgeAndTransfer',
+      'bridgeAndExecute',
+      'simulateBridgeAndExecute',
+      'getBalancesForBridge',
+    ] as const;
+    expectTypeOf<Extract<keyof NexusClient, (typeof removed)[number]>>().toEqualTypeOf<never>();
+    expectTypeOf<keyof NonNullable<IntentOperationOptions['hooks']>>().toEqualTypeOf<'onIntent'>();
+    const client = rootModule.createNexusClient({
+      clientId: 'test-client',
+      analytics: { enabled: false },
+    });
+    for (const method of removed) expect(Object.keys(client)).not.toContain(method);
+    expect(
+      Object.keys(NexusAnalyticsEvents).filter((name) => /^(BRIDGE|TRANSFER)_/.test(name)),
+    ).toEqual([]);
+    client.destroy();
+  });
+
+  it('requires clientId when creating a client', () => {
+    expectTypeOf<Parameters<typeof rootModule.createNexusClient>>().toMatchTypeOf<
+      [{ clientId: string }]
+    >();
+    expectTypeOf<keyof Parameters<typeof rootModule.createNexusClient>[0]>().toEqualTypeOf<
+      'clientId' | 'network' | 'debug' | 'analytics' | 'devTiming' | 'internal'
     >();
   });
 
-  it('exports renamed public types and intent status from the package root', () => {
+  it('exposes asynchronous paginated token selection helpers', () => {
+    expectTypeOf<NexusClient['getSupportedChains']>().toEqualTypeOf<() => IntentChainMetadata[]>();
+    expectTypeOf<NexusClient['getTokens']>().toEqualTypeOf<(query?: IntentTokenQuery) => Promise<IntentTokenPage>>();
+    expectTypeOf<NexusClient['getToken']>().toEqualTypeOf<(token: TokenRef) => Promise<IntentToken>>();
+    expectTypeOf<NexusClient['getTokensByChain']>().toEqualTypeOf<
+      (chainId: number, query?: Omit<IntentTokenQuery, 'chainId'>) => Promise<IntentTokenPage>
+    >();
+    expectTypeOf<NexusClient['getAvailableSourceTokens']>().toEqualTypeOf<
+      (destination: TokenRef, selectedSources?: TokenRef[], query?: IntentTokenQuery) => Promise<IntentSourceTokenPage>
+    >();
+    expectTypeOf<NexusClient['getAvailableDestinationTokens']>().toEqualTypeOf<
+      (sources: TokenRef[], query?: IntentTokenQuery) => Promise<IntentDestinationTokenPage>
+    >();
+    expectTypeOf<NexusClient['confirmRouteExists']>().toEqualTypeOf<
+      (sources: TokenRef[], destination: TokenRef) => Promise<boolean>
+    >();
+  });
+
+  it('exports the unified Better Intent surface and compatibility aliases', () => {
     const params: ListIntentsParams = { page: 1, status: IntentStatus.Created };
-    const result = { intents: [] as IntentRecord[], total: 0 } satisfies ListIntentsResult;
-    const bridgeSimulation = {} as BridgeSimulationResult;
+    const result = { intents: [] as IntentHistoryRecord[], total: 0 } satisfies ListIntentsResult;
     const swapResult = {} as SwapResult;
-    const swapMaxResult = {} as SwapMaxResult;
-    const calculateMaxForBridgeOperation =
-      'calculateMaxForBridge' as const satisfies OperationName;
+    const swapOperation = 'swapWithExactOut' as const satisfies OperationName;
     const txResult = {} as TxResult;
-    const bridgeAndExecuteResult = {} as BridgeAndExecuteResult;
     const swapAndExecuteResult = {} as SwapAndExecuteResult;
-    const swapAllowanceStep = {} as SwapAllowanceStep;
-    const tokenBalance = {} as TokenBalance;
-    const chainBalance = {} as ChainBalance;
+    const quote = {} as IntentQuote;
+    const route = { sources: [{ chainId: 10 }] } satisfies IntentRouteConstraints;
+    const balance = {} as IntentBalance;
+    const event = {} as IntentEvent;
+    const stepError = {} as IntentStepError;
+    const hook = {} as IntentHookData;
+    const status = {} as IntentStatusResponse;
+    const leg = {} as IntentLegStatus;
 
     expect(IntentStatus.Created).toBe('created');
     expect(params).toEqual({ page: 1, status: 'created' });
     expect(result.total).toBe(0);
-    expectTypeOf(bridgeSimulation).toMatchTypeOf<BridgeSimulationResult>();
-    expectTypeOf(swapResult).toMatchTypeOf<SwapResult>();
-    expectTypeOf(swapMaxResult).toMatchTypeOf<SwapMaxResult>();
-    expect(calculateMaxForBridgeOperation).toBe('calculateMaxForBridge');
+    expectTypeOf(swapResult).toEqualTypeOf<IntentResult>();
+    expectTypeOf<IntentRecord>().toEqualTypeOf<IntentHistoryRecord>();
+    expectTypeOf<ListIntentsResult>().toEqualTypeOf<IntentHistoryResult>();
+    expect(swapOperation).toBe('swapWithExactOut');
     expectTypeOf(txResult).toMatchTypeOf<TxResult>();
-    expectTypeOf(bridgeAndExecuteResult).toMatchTypeOf<BridgeAndExecuteResult>();
+    expectTypeOf(quote).toMatchTypeOf<IntentQuote>();
+    expect(route.sources[0]?.chainId).toBe(10);
+    expect(getIntentQuoteFailure(new Error('not an SDK error'))).toBeNull();
+    expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
+    expectTypeOf<IntentBalance['priceSource']>().toEqualTypeOf<'oracle' | 'indexer' | 'coingecko' | 'relay' | null>();
+    expectTypeOf<IntentProviderSupport['currencyId']>().toEqualTypeOf<number | string | undefined>();
+    expectTypeOf<keyof IntentFees>().toEqualTypeOf<
+      | 'depositRaw'
+      | 'depositUsd'
+      | 'fulfillmentRaw'
+      | 'fulfillmentUsd'
+      | 'protocolRaw'
+      | 'protocolUsd'
+      | 'solverRaw'
+      | 'solverUsd'
+    >();
+    expectTypeOf<'source_approval_signature'>().toExtend<IntentPlanStep['type']>();
+    expectTypeOf(event).toMatchTypeOf<IntentEvent>();
+    expectTypeOf(stepError.message).toEqualTypeOf<string>();
+    expectTypeOf(hook).toMatchTypeOf<IntentHookData>();
+    expectTypeOf(status.status).toEqualTypeOf<IntentStatus>();
+    expectTypeOf(status.legs).toEqualTypeOf<IntentLegStatus[]>();
+    expectTypeOf(leg.sourceIndex).toEqualTypeOf<number>();
     expectTypeOf(swapAndExecuteResult).toMatchTypeOf<SwapAndExecuteResult>();
-    expectTypeOf(swapAllowanceStep.method).toEqualTypeOf<'approval' | 'permit' | undefined>();
-    expectTypeOf(tokenBalance.totalBalance).toEqualTypeOf<string>();
-    expectTypeOf(tokenBalance.usableBalance).toEqualTypeOf<string>();
-    expectTypeOf(chainBalance.totalBalance).toEqualTypeOf<string>();
-    expectTypeOf(chainBalance.usableBalance).toEqualTypeOf<string>();
-
-    if (bridgeAndExecuteResult.bridgeSkipped) {
-      expectTypeOf(bridgeAndExecuteResult.bridgeResult).toEqualTypeOf<undefined>();
-    } else {
-      expectTypeOf(bridgeAndExecuteResult.bridgeResult).toMatchTypeOf<BridgeResult>();
-    }
 
     if (swapAndExecuteResult.swapSkipped) {
       expectTypeOf(swapAndExecuteResult.swapResult).toEqualTypeOf<undefined>();
@@ -80,6 +206,9 @@ describe('public api exports', () => {
     expect(rootModule).not.toHaveProperty('parseUnits');
     expect(rootModule).not.toHaveProperty('isSupportedToken');
     expect(utilsModule).not.toHaveProperty('isSupportedToken');
+    expect(rootModule).not.toHaveProperty('createSafeClient');
+    expect(rootModule).not.toHaveProperty('createSafeMiddlewareClient');
+    expect(rootModule).not.toHaveProperty('predictSafeAccountAddress');
   });
 
   it('locks the NexusAnalyticsEvents taxonomy after the SigNoz/PostHog split', () => {
@@ -99,30 +228,18 @@ describe('public api exports', () => {
     expect(NexusAnalyticsEvents.LIST_INTENTS_INITIATED).toBe('nexus_v2_list_intents_initiated');
     expect(NexusAnalyticsEvents.LIST_INTENTS_SUCCESS).toBe('nexus_v2_list_intents_success');
     expect(NexusAnalyticsEvents.LIST_INTENTS_FAILED).toBe('nexus_v2_list_intents_failed');
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_INITIATED).toBe(
-      'nexus_v2_calculate_max_for_swap_initiated'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_SUCCESS).toBe(
-      'nexus_v2_calculate_max_for_swap_success'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_SWAP_FAILED).toBe(
-      'nexus_v2_calculate_max_for_swap_failed'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_INITIATED).toBe(
-      'nexus_v2_calculate_max_for_bridge_initiated'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_SUCCESS).toBe(
-      'nexus_v2_calculate_max_for_bridge_success'
-    );
-    expect(NexusAnalyticsEvents.CALCULATE_MAX_FOR_BRIDGE_FAILED).toBe(
-      'nexus_v2_calculate_max_for_bridge_failed'
-    );
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_SWAP_INITIATED');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_SWAP_SUCCESS');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_SWAP_FAILED');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_BRIDGE_INITIATED');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_BRIDGE_SUCCESS');
+    expect(NexusAnalyticsEvents).not.toHaveProperty('CALCULATE_MAX_FOR_BRIDGE_FAILED');
   });
 
   it('locks the AnalyticsManager public surface after boundary cleanup', () => {
     // The typed `trackBridge` / `trackSwap` / etc. wrappers moved to
-    // `core/sdk/operation-boundary.ts` (analytics layer must not depend on
-    // core/swap types). The `attachWalletProvider` / `trackError` /
+    // `client/operation-boundary.ts` (analytics layer must not depend on
+    // client/intent types). The `attachWalletProvider` / `trackError` /
     // `trackOpFailure` methods were deleted (they leaked error details into
     // PostHog or duplicated SigNoz). The `wrap*Options` helpers became
     // boundary-internal. Re-adding any of these on AnalyticsManager would

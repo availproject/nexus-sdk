@@ -1,3 +1,6 @@
+import type { NexusClient } from "@avail-project/nexus-core";
+import { getSwapTokenOptions } from "../lib/destinationTokens";
+import { getErrorMessage } from "../lib/nexus";
 import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -25,11 +28,16 @@ export type DestinationOption = {
   tokenLogo?: string;
   tokenAddress?: `0x${string}`;
   decimals?: number;
+  verified?: boolean;
 };
 
 type DestinationSelectorProps = {
+  direction?: "source" | "destination";
   options: DestinationOption[];
   selectedId: string;
+  selected?: DestinationOption;
+  client?: NexusClient | null;
+  chains?: PickerChainOption[];
   onSelect: (option: DestinationOption) => void;
   /** Optional placeholder text when nothing is selected. */
   placeholder?: string;
@@ -47,18 +55,17 @@ function CloseIcon() {
 }
 
 export function DestinationSelector({
+  direction = "destination",
   options,
   selectedId,
+  selected,
+  client,
+  chains,
   onSelect,
   placeholder = "Select",
   balances,
 }: DestinationSelectorProps) {
   const [open, setOpen] = useState(false);
-
-  const selected = useMemo(
-    () => options.find((o) => o.id === selectedId),
-    [options, selectedId],
-  );
 
   const balanceMap = useMemo(() => {
     const map = new Map<string, { balance: string; value: string }>();
@@ -71,6 +78,11 @@ export function DestinationSelector({
     return map;
   }, [balances]);
 
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState<Awaited<ReturnType<typeof getSwapTokenOptions>>>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState("");
   const [chainFilter, setChainFilter] = useState<number | null>(null);
   const [view, setView] = useState<"main" | "chains">("main");
@@ -78,11 +90,37 @@ export function DestinationSelector({
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setOffset(0);
     setChainFilter(null);
     setView("main");
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !client) return;
+    let cancelled = false;
+    setLoading(true);
+    setPage(undefined);
+    setError("");
+    const search = query.trim();
+    const timer = window.setTimeout(() => {
+      getSwapTokenOptions(client, {
+        chainId: chainFilter ?? undefined,
+        ...(search.startsWith("0x") ? { contract: search } : { symbol: search || undefined }),
+        offset,
+        limit: 50,
+      }, direction).then((result) => {
+        if (!cancelled) setPage(result);
+      }).catch((error: unknown) => {
+        if (!cancelled) setError(getErrorMessage(error));
+      }).finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    }, search ? 250 : 0);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [client, open, query, chainFilter, offset, retry, direction]);
+
   const availableChains = useMemo<PickerChainOption[]>(() => {
+    if (chains) return chains;
     const seen = new Map<number, string>();
     for (const o of options) {
       if (!seen.has(o.chainId)) seen.set(o.chainId, o.chainName);
@@ -90,20 +128,21 @@ export function DestinationSelector({
     return [...seen.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [options]);
+  }, [options, chains]);
 
   const selectedChain = chainFilter !== null
     ? availableChains.find((c) => c.id === chainFilter) ?? null
     : null;
 
   const filteredOptions = useMemo(() => {
+    if (client) return page?.options ?? [];
     if (!query && chainFilter === null) return options;
     return options.filter((o) => {
       if (chainFilter !== null && o.chainId !== chainFilter) return false;
       if (!matchesQuery(query, o.symbol, o.label, o.chainName, o.tokenAddress)) return false;
       return true;
     });
-  }, [options, query, chainFilter]);
+  }, [client, page, options, query, chainFilter]);
 
   function handleSelect(option: DestinationOption) {
     onSelect(option);
@@ -117,7 +156,7 @@ export function DestinationSelector({
         className="dest-trigger"
         onClick={() => setOpen(true)}
         aria-haspopup="dialog"
-        disabled={options.length === 0}
+        disabled={!client && options.length === 0}
       >
         {selected ? (
           <>
@@ -147,6 +186,7 @@ export function DestinationSelector({
                 selected={chainFilter}
                 onApply={(id) => {
                   setChainFilter(id);
+                  setOffset(0);
                   setView("main");
                 }}
                 onBack={() => setView("main")}
@@ -155,8 +195,8 @@ export function DestinationSelector({
             <>
             <div className="modal-header src-modal-header">
               <div className="src-modal-title">
-                <Dialog.Title className="modal-title">Choose asset to receive</Dialog.Title>
-                <p className="src-modal-subtitle">Select token and destination chain</p>
+                <Dialog.Title className="modal-title">Choose asset to {direction === "source" ? "send" : "receive"}</Dialog.Title>
+                <p className="src-modal-subtitle">Select token and {direction} chain</p>
               </div>
               <Dialog.Close asChild>
                 <button className="ghost-button" type="button" title="Close" aria-label="Close">
@@ -167,15 +207,21 @@ export function DestinationSelector({
 
             <PickerSearch
               query={query}
-              onQueryChange={setQuery}
+              onQueryChange={(value) => { setQuery(value); setOffset(0); }}
+              placeholder={client ? "Search symbol or address" : undefined}
               chains={availableChains}
               selectedChain={selectedChain}
               onOpenChainPicker={() => setView("chains")}
             />
 
             <div className="modal-body src-modal-body">
-              {options.length === 0 ? (
-                <p className="modal-empty">No destinations available.</p>
+              {loading ? (
+                <p className="modal-empty" role="status">Loading tokens…</p>
+              ) : error ? (
+                <div className="modal-empty" role="alert">
+                  <p>{error}</p>
+                  <button type="button" className="ghost-button ghost-button--text" onClick={() => setRetry((value) => value + 1)}>Retry</button>
+                </div>
               ) : filteredOptions.length === 0 ? (
                 <p className="picker-empty">No matches for current filters.</p>
               ) : (
@@ -208,7 +254,8 @@ export function DestinationSelector({
                           <AssetRowMeta
                             symbol={option.label}
                             sub={
-                              option.tokenAddress && !isNative ? (
+                              <>
+                              {option.tokenAddress && !isNative ? (
                                 <>
                                   {shortAddress(option.tokenAddress)}
                                   <CopyButton value={option.tokenAddress} />
@@ -235,7 +282,13 @@ export function DestinationSelector({
                                 </>
                               ) : (
                                 <>on {option.chainName}</>
-                              )
+                              )}
+                              {typeof option.verified === "boolean" && (
+                                <span className="balance-verification" data-verified={option.verified}>
+                                  {option.verified ? "Verified" : "Unverified"}
+                                </span>
+                              )}
+                              </>
                             }
                           />
                           {held && (
@@ -248,6 +301,12 @@ export function DestinationSelector({
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {client && page && !loading && (
+                <div className="picker-pagination">
+                  <button type="button" className="ghost-button ghost-button--text" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))}>Previous</button>
+                  <button type="button" className="ghost-button ghost-button--text" disabled={page.offset + page.limit >= page.total} onClick={() => setOffset(page.offset + page.limit)}>Next</button>
                 </div>
               )}
             </div>

@@ -1,10 +1,11 @@
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import process from 'node:process';
 
 const SCOPE_PREFIXES = [
-  ['src/swap/**', 'src/swap/'],
-  ['src/swap/execution/**', 'src/swap/execution/'],
-  ['src/flows/**', 'src/flows/'],
+  ['src/intent/**', 'src/intent/'],
+  ['src/execute/**', 'src/execute/'],
+  ['src/client/**', 'src/client/'],
 ];
 
 const normalizeSourcePath = (sourcePath) => {
@@ -158,6 +159,6 @@ const main = async () => {
   }
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }

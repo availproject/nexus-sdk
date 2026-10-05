@@ -78,16 +78,6 @@ export class SessionManager {
   }
 
   /**
-   * Get current operation counts
-   */
-  getOperationCounts(): { attempted: number; succeeded: number } {
-    return {
-      attempted: this.operationsAttempted,
-      succeeded: this.operationsSucceeded,
-    };
-  }
-
-  /**
    * Reset the session (create new session)
    */
   reset(): void {

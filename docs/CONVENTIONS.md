@@ -1,244 +1,235 @@
 # Conventions
 
-This document is the coding reference for humans and LLMs working in the SDK. Read it together
-with `docs/ARCHITECTURE.md`.
+Read this with [Architecture](ARCHITECTURE.md). Source and tests take precedence when documentation
+and behavior disagree.
 
-> **Module docs.** Deep, module-specific guidance lives in `*.md` files next to the code it
-> documents. This document is the thin index. When a section below links out to a sibling doc, that
-> doc is the source of truth — read it before changing that module.
+## Sources of truth
 
-| Module | Sibling doc | Covers |
-|---|---|---|
-| `src/swap/` | [`src/swap/swap.md`](../src/swap/swap.md) | Swap end-to-end flow: routing & bridge-provider (Nexus/Mayan) selection, source/destination algorithms, aggregators, intent/plan/prepare, and per-stage execution across the ephemeral & Safe wallet paths |
-| `src/bridge/` | [`src/bridge/bridge.md`](../src/bridge/bridge.md) | Bridge end-to-end flow: quoting, the Nexus/Mayan provider seam, intent build, RFF signing, deposits, and fill |
-| `src/domain/errors` | [`src/domain/errors.md`](../src/domain/errors.md) | Error taxonomy: the `NexusError` hierarchy, category/service codes, the boundary-catch pattern, throwing rules, and OTel surfacing |
-| `src/domain/utils/logger` | [`src/domain/utils/logs.md`](../src/domain/utils/logs.md) | Logging levels, searchable message taxonomy, structured payload rules, production safety, and timing/logging responsibilities |
+- `biome.jsonc` — formatting and linting
+- `tsconfig.json` and `tsconfig.tests.json` — compiler rules
+- `package.json` — validation/build commands
+- `src/index.ts`, `src/utils.ts`, and `src/client/types.ts` — public surface
+- `tests/public-api.test.ts` — public export guardrails
+- [ERRORS.md](ERRORS.md) — error taxonomy
+- [LOGGING.md](LOGGING.md) — logging rules
 
-As more modules grow sibling markdown, add a row here and point the relevant section below to it.
-
-## Source Of Truth
-
-- `biome.jsonc` for formatting and linting
-- `tsconfig.json` for source TypeScript compiler settings
-- `tsconfig.tests.json` for test compiler settings
-- `package.json` for validation and build commands
-
-## Tooling And Style
-
-Formatting and language defaults:
+## Style
 
 - 2-space indentation
 - 100-character line width
-- single quotes
-- semicolons always
-- trailing commas use ES5 style
-- arrow function parens always
-- TypeScript target is `es2024`
-- strict mode is enabled
-- use `node:` import prefixes for Node built-ins
-- prefer `const`; do not use `var`
-- enum members must have explicit values
-- prefer `**` over `Math.pow()`
-- prefer `===` over `==`
-- use `Number.isNaN()` instead of `isNaN()`
+- single quotes and semicolons
+- ES5 trailing commas
+- strict TypeScript, target `es2024`
+- `node:` prefixes for Node built-ins
+- prefer `const`, arrow functions, `===`, and `Number.isNaN()`
+- use lowercase hyphenated filenames for new function-oriented modules
 
-Tests:
+Vitest is the test runner. Mirror `src/` under `tests/` where practical.
 
-- Vitest is the test runner
-- tests live under `tests/`
-- test TypeScript config relaxes unused locals and params
-- Biome allows `any` in tests for mocking, but keep it contained
-- [`tests/TESTING.md`](../tests/TESTING.md) defines test-layer ownership, approved mock boundaries,
-  shared helper ownership, and the required subsumption and coverage-comparison process
+## Package ownership
 
-## Logging
+- `src/client/` assembles the public client and owns top-level SDK state and operation boundaries.
+- `src/intent/` owns Better Intent HTTP transport, swap inputs, models, normalization, catalog,
+  funding, wallet actions, and the canonical orchestrator.
+- `src/execute/` owns execute/simulate entrypoints and runtime, approvals, and wallet capabilities.
+- `src/domain/` owns shared types, constants, contract ABI, validation, formatting, logging, and errors.
+- `src/services/` contains cross-feature helpers only.
+- `src/analytics/` owns generic analytics providers, timing, sessions, and events.
 
-Use `src/domain/utils/logger.ts` for SDK logs. The detailed message taxonomy, payload rules,
-security constraints, and timing guidance live in
-[`src/domain/utils/logs.md`](../src/domain/utils/logs.md); read it before adding or changing a log.
+Keep modules flat within each area unless a cohesive group needs its own subdirectory. Do not
+create a folder solely to hold one file or a pass-through barrel. Feature-specific helpers belong
+beside their consumers; only shared helpers belong in `services`.
 
-Debug messages must be literal, searchable, and unique to their production call site. Logging must
-not add I/O, mutate state, or create a new failure path. Warning and error messages also feed
-telemetry and should remain stable unless an operational change is intentional.
+Lower layers must not import `src/client/`. `src/services/` must not import `src/execute/`.
+Analytics must not import client, intent, or execute modules. `npm run lint:deps` enforces the
+service and analytics boundaries.
 
-## Code Organization
+Do not recreate local routing feature packages for middleware-owned behavior. New provider routing,
+quote selection, fee calculation, and source allocation belong in Better Intent middleware, not the
+SDK.
 
-Use the current package boundaries:
+## Public API changes
 
-- `src/abi/` contains contract ABIs shared by runtime code
-- `src/analytics/` owns telemetry, timing, analytics providers, and analytics event definitions
-- `src/core/` assembles the public client and shared SDK state
-- `src/flows/` contains thin public entrypoints and composition wrappers
-- `src/bridge/` owns bridge-specific internals
-- `src/execute/` owns shared execute internals
-- `src/swap/` owns swap-specific planning, execution, and wallet logic
-- `src/services/` is only for cross-feature helpers
-- `src/transport/` owns middleware and simulation clients plus request lifecycle
-- `src/domain/` owns shared types, errors, constants, and validation
+Treat exports from `src/index.ts` and `src/utils.ts`, `NexusClient` method signatures, and stable
+error codes as public API.
 
-Rules:
+When intentionally changing them:
 
-- `src/services/` must not import `src/flows/`
-- do not move feature-specific code into `src/services/` just because it is reused by two files in
-  the same feature
-- prefer updating the existing feature package before creating a new top-level folder
+- update public API and type-surface tests;
+- update `README.md` in the same change;
+- update the browser example if an integration shape changes;
+- call out breaking behavior in review.
 
-## Public API Rules
+Do not keep dead internal paths or public aliases that preserve obsolete semantics. Cheap aliases
+are acceptable only when they describe the same normalized model.
 
-Treat these as frozen unless the change is explicitly approved:
+## External boundary normalization
 
-- exports from `src/index.ts`
-- exports from `src/utils.ts`
-- `NexusClient` method signatures
-- stable error codes in `ERROR_CODES`
+- Parse external responses at the transport boundary.
+- Business logic consumes normalized types, never raw middleware payloads.
+- Normalize EVM chain references and addresses once.
+- Parse raw decimal strings into `bigint` once.
+- Keep private execution instructions separate from public `IntentQuote`.
+- Schema failures are backend errors, not unchecked `TypeError` failures.
 
-If you intentionally change public surface area:
+Add a normalizer test before adding a new middleware field to business logic.
 
-- update or add surface tests
-- update `README.md` for any end-user-visible SDK change
-- update docs, examples, and migration notes as needed
-- call out the breaking change clearly in review
+## Amounts and token identity
 
-## Domain-Specific SDK Rules
+- Public inputs and blockchain calls use raw `bigint` values.
+- Use a `*Raw` suffix for raw units.
+- Human-readable amounts are strings and conversions must be explicit.
+- Never infer decimals from symbol; resolve by chain plus token address/identity.
+- Never mix raw and readable units in one calculation.
+- Do not stringify `Decimal` with `.toString()` when plain decimal notation is required; use
+  `.toFixed()`.
 
-These rules are worth reading even if you already know the repo layout. They capture SDK invariants
-and bug-prone areas that are easy to miss in review.
+Native balances must retain enough value for subsequent gas. Composite funding must account for
+both the requested output and the later execute value/gas.
 
-### Amounts And Units
+## Intent request construction
 
-- Public inputs and blockchain calls use raw `bigint` units.
-- Internal arithmetic that needs fractional precision should use `Decimal`.
-- Result, plan, and hook shapes may include both raw and human-readable values, but conversions must
-  be explicit.
-- Use `*Raw` suffix for raw integer units, for example `toAmountRaw`, `approvedAmountRaw`.
-- Use plain `amount` for human-readable strings or `Decimal` values.
-- Never do percentage or fee math directly on raw `bigint` values unless the logic is intentionally
-  integer-safe.
-- Never pass `Decimal` values into public params or blockchain calls.
-- Never stringify a `Decimal` with `.toString()`: it emits exponential notation for very large or
-  small values (e.g. `1e+21`, `1e-8`). Use `.toFixed()` for a plain decimal string — everywhere,
-  including logs. The same hazard applies to implicit coercion (`` `${d}` ``, `String(d)`), so
-  convert with `.toFixed()` first.
-- Never mix raw and human units in the same calculation without an explicit conversion.
+- Same-asset cross-chain moves use swaps with explicit chain IDs and token addresses.
+- Exact-output swap may omit sources; middleware discovers wallet balances without SDK token
+  enumeration. Explicit chain-only filters stay broad; resolve only selected token addresses.
+  Never omit source filters after removing every explicit candidate.
+- Exact-input swap requires explicit chain, token address, and positive `amountRaw` on every source.
+- Exact-input previews may use a random sender without a wallet. Capture the sender and connection
+  state once per operation and retain both across refreshes; connecting requires a new operation.
+- Exact-input sources and destination must share one provider across chain and token directional
+  support. Exact-output candidates need individual compatibility with the destination. These checks
+  use chain metadata plus token metadata fetched on demand; middleware still decides route feasibility.
+- Token picker helpers fetch one filtered page (default 50, maximum 1000). Their pagination describes
+  API candidates before directional filtering: advance by offset + limit, including empty pages.
+  Keep selected tokens separate from search results. Optional selected sources narrow source groups.
+  Destination choices and
+  `confirmRouteExists` require a provider common to all selected sources. Provider groups are for
+  display and must not pin a quote provider.
+- Default slippage is 50 basis points unless the caller supplies another valid value or `auto`.
 
-### Token Decimals And Chain Metadata
+Do not calculate a route, quote, maximum output, or provider comparison in the SDK.
 
-- Never hardcode token decimals by symbol.
-- Resolve token metadata from chain plus token identity, not from token symbol alone.
-- The same symbol can have different decimals on different chains.
-- For cross-chain work, source-side amounts use source token decimals and destination-side amounts
-  use destination token decimals.
+## Hooks
 
-### Native Token Gas Reservation
+All intent methods use `options.hooks`:
 
-- When selecting balances that include native tokens, reserve gas for later steps.
-- Do not drain native balances needed for approvals, deposits, swaps, bridge funding, or execution.
-- Changes touching source selection or max-amount logic should be checked against native-token edge
-  cases.
+- swap operations: `onIntent`
+- swap-and-execute: `onIntent` plus top-level `beforeExecute`
 
-### Boundary Normalization
+Swap `onIntent` receives `{ quote, execution, allow, deny, refresh, attemptId }`. `execution` is
+`{ possible: true }` or `{ possible: false, cause: 'not-connected' | 'insufficient-balance' }`.
+`not-connected` takes priority and uses the connection state captured at operation start.
+Read `hook.execution` after awaiting `hook.refresh()` for the latest quote's eligibility.
+A refreshed quote replaces the complete executable quote. Do not update only its public or private half.
 
-- Validate external responses as early as possible.
-- Normalize middleware and contract response shapes before passing them into business logic.
-- Normalize address formats at the boundary. Middleware may return padded or otherwise non-canonical
-  values; internal code should use canonical `Hex` shapes.
-- Business logic should consume normalized internal types, not raw API payloads.
+ERC-20 approvals use the quote's minimum required amounts. Sponsored source approvals use the
+quote's EIP-712 signing payload, preserving decimal integer strings without conversion to `number`.
+No intent hook means auto-allow. After review, reject disconnected operations and quotes with
+`isExecutable: false` before any wallet action or submission. Preserve middleware execution warnings
+in the public quote, normalizing shortfall amounts to bigint at the transport boundary.
 
-### Shared Logic And Duplication
+## Events and callbacks
 
-- If the same logic is needed in multiple runtime paths, centralize it in the owning feature package
-  or in `src/services/` if it is truly cross-feature.
-- Do not duplicate wallet capability parsing, fee calculations, source selection rules, or event
-  mapping with slight variations.
-- Before creating a new helper in `src/services/`, verify that the logic is actually shared across
-  features and not just duplicated within one feature.
+The canonical `IntentEvent` union is:
 
-### Errors
+- `quote`
+- `step` with `started | completed | failed`
+- `status` with `created | deposited | fulfilled | expired` and normalized per-source `legs`
 
-The SDK uses flat, categorized errors: an abstract `NexusError<C>` base with 7 concrete
-subclasses (`ValidationError`, `UserActionError`, `SimulationError`, `ExecutionError`,
-`BackendError`, `ExternalServiceError`, `InternalError`), a stable `category/specific_noun_suffix`
-code, and no cause chain.
+Events expose normalized public plan steps and per-source leg status, transaction links, and errors.
+They do not expose RFF payloads, signing messages, ABIs, or raw middleware responses.
 
-The full reference — category/service taxonomy, the boundary-catch pattern, throwing rules,
-factory guidance, OTel surfacing, consumer handling, and pitfalls — lives in
-[`src/domain/errors.md`](../src/domain/errors.md). Read it before adding or changing error
-handling.
+User event callbacks and analytics callbacks must run through the non-blocking callback pattern.
+They must not break execution. Approval hooks are intentionally flow controlling and may reject.
 
-### Hooks And Events
+## Wallet ordering
 
-Hook placement:
+Treat the EOA wallet as a single stateful resource. Serialize actions that may switch chains,
+prompt, sign, approve, or send a transaction.
 
-- `bridge` and `bridgeAndTransfer` use `options.hooks.onIntent` and `options.hooks.onAllowance`
-- swap operations use `options.hooks.onIntent` only
-- `bridgeAndExecute` and `swapAndExecute` use top-level `onIntent`
-- composite execute flows use `beforeExecute` when needed
+For an approved intent, preserve this order:
 
-Defaults:
+1. required ERC-20 approval broadcasts or sponsored source-approval signatures, with wallet prompts
+   serialized and receipt checks running concurrently outside the wallet queue;
+2. wait for all required approvals to confirm, recheck quote expiry, then intent `personal_sign`;
+3. native source transactions;
+4. submit all required signatures through the `signatures[]` envelope;
+5. fulfillment polling.
 
-- no `onIntent` hook means auto-allow intent
-- no allowance hook means default to minimum necessary approvals
+Do not parallelize wallet prompts. Read-only API work can run concurrently when it does not race
+approved quote state.
 
-Event emission:
+Handle receipt failures as soon as waiting starts so they cannot become unhandled rejections while
+a later wallet prompt is open. Settle all submitted approval checks before returning an approval
+failure, preserving each hash and its confirmed/reverted/unconfirmed state in error details.
+Retry receipt lookup by known hash; never treat an RPC timeout as proof that resending is safe.
 
-- wrap user callback emission so callback failures do not crash the flow
-- follow existing progress-emitter patterns in bridge, execute, and swap code
-- emitted events are discriminated on `type`; progress events also use `stepType` and `state`
-- if a new flow emits progress, keep its event union aligned with the existing bridge, swap, and
-  execute patterns
+## Composite operations
 
-### Wallet Capability And Source Selection Rules
+Composite methods may calculate only destination funding requirements:
 
-- Reuse the shared wallet capability helpers instead of re-implementing `getCapabilities(...)`
-  parsing in feature code.
-- Treat the user's EOA wallet as a single-chain, stateful resource: serialize across chains any
-  operation that can `switchChain`, prompt the wallet, sign typed data, send an EOA transaction, or
-  write an approval. Non-EOA work (quote fetching, read-only public-client calls, per-chain Safe
-  deployment, sponsored Safe execution, and receipt waits) may run in parallel. Tests touching
-  multi-chain EOA behavior must assert concurrent EOA wallet operations never exceed one.
+- output-token and native balances from the initial snapshot, filtered by selected sources;
+- execute value;
+- execute gas cost from the required caller-supplied raw estimate, current fee prices, and chain buffers;
+- resulting token and gas shortfalls.
 
-Swap source selection and Safe execution ordering — including the value-prefix survey and the
-deployment-before-wallet-prompt invariant — are documented in
-[`src/swap/swap.md`](../src/swap/swap.md), which is the source of truth for the swap flow. Read it
-before changing that flow.
+They must not reconstruct an intent route. Execute only after the funding intent is fulfilled.
+Do not estimate the destination call before funding; balances or approvals may be missing.
+Estimate required approval gas separately, using 70,000 raw gas units only as a fallback.
+Refresh fee prices and L1 fees from the original calls and gas estimates, then recalculate
+shortfalls and replace the funding quote. Reuse the initial balance snapshot and allowance decision.
+Commit refreshed sources, quote, and execution fees together only after successful preparation.
+Composite hooks must represent fully funded execution as well as funding quotes.
 
-### Refactoring
+If only gas is missing for a non-native output token, request one raw output unit plus the gas drop.
 
-- Prefer one canonical implementation per behavior.
-- Delete dead internal paths after a refactor instead of leaving compatibility shims around.
-- Preserve public behavior unless the change is explicitly approved.
-- When extracting shared logic, place it in `src/services/` only if it is genuinely cross-feature;
-  otherwise keep it in the owning feature package.
-- If a refactor changes flow ownership or package boundaries, update `docs/ARCHITECTURE.md`.
-- If tests still pass without exercising the new implementation, fix the tests instead of keeping
-  the old path around.
+## Errors
 
-## Naming And File Placement
+Use `Errors.*` and the `NexusError` subclasses. Preserve stable category/code/context semantics.
 
-- prefer `to*` names for destination-side operation params, for example `toChainId`,
-  `toTokenSymbol`, `toAmountRaw`
-- prefer `sources` for source selection arrays
-- prefer `*Params` for public inputs
-- prefer `*Options` for optional operation config
-- prefer `*Result` for return shapes
-- prefer `*Event` for emitted event unions
-- prefer `*Plan` and `*Step` for execution planning types
-- `get*` should imply a value is returned or an error is thrown
-- `find*` should imply missing values are allowed
+- input/state errors → `ValidationError`
+- user denial → `UserActionError`
+- wallet/RPC execution → `ExecutionError`
+- middleware/schema/status failures → `BackendError`
+- SDK invariants → `InternalError`
 
-For filenames:
+Include `context.stepId`, `stepType`, and `chainId` when an error is step scoped. There is no
+`NexusStepError`.
 
-- prefer lowercase hyphenated filenames for new function-oriented modules
-- keep existing local patterns when working in areas that already use class-oriented PascalCase
-  files, such as analytics and provider code
-- mirror `src/` structure in `tests/` where practical
+## Logging and telemetry
 
-## Validation Commands
+Logs must be searchable, stable, and sanitized. They must not add I/O, mutate flow state, or create
+a failure path. See [LOGGING.md](LOGGING.md).
 
-Use the smallest relevant set while iterating, then run the full checks before finishing:
+Public method failures are emitted at the operation boundary. Categorize once near the failing
+boundary; do not repeatedly wrap a `NexusError`.
 
-- `npm run typecheck`
-- `npm run test`
-- `npm run lint`
-- `npm run lint:deps` when dependency direction could be affected
-- `npm run test:coverage` when validating riskier or broader behavior changes
+Use the shared bucket mapping in `src/services/error-reporting.ts` for product reporting. Emit the
+bucket as `error.code` and the SDK code as `error.type`; preserve public codes/categories/messages.
+Events carry bounded reasons; messages, stacks, and raw middleware diagnostics stay in sanitized
+OTel logs. Client/session/attempt IDs are per-record attributes, never metric labels or global
+logger resources. Keep one canonical outcome per payment attempt, and do not turn a polling error
+into a confirmed delivery failure. See [TELEMETRY.md](TELEMETRY.md).
+
+## Refactoring
+
+- Keep one canonical implementation per behavior.
+- Delete replaced code and tests instead of retaining fallback paths.
+- Add the closest behavioral test before changing behavior.
+- Compare public exports, inputs, results, hooks, errors, and events when restructuring.
+- Update architecture docs when ownership or request flow changes.
+
+## Verification
+
+Use focused checks while iterating, then finish with:
+
+```bash
+npm run typecheck
+npm run typecheck:tests
+npm run test
+npm run lint
+npm run lint:deps
+npm run build
+```
+
+Also build `example/browser` when public balance, catalog, hook, event, or result types change.

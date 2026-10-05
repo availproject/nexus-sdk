@@ -25,7 +25,7 @@
  * OPT-OUT:
  * To completely disable analytics:
  * ```typescript
- * const sdk = createNexusClient({ analytics: { enabled: false } });
+ * const sdk = createNexusClient({ clientId: 'your-app-name', analytics: { enabled: false } });
  * ```
  *
  * AUTO-DISABLE IN DEV / TEST / LOCALHOST:
@@ -35,12 +35,13 @@
  * regardless of environment, set `mode: 'off'` (equivalent to `enabled: false`).
  * `enabled: false` always wins over `mode: 'on'`.
  * ```typescript
- * const sdk = createNexusClient({ analytics: { mode: 'on' } });
+ * const sdk = createNexusClient({ clientId: 'your-app-name', analytics: { mode: 'on' } });
  * ```
  *
  * PRIVACY CONTROLS:
  * ```typescript
  * const sdk = createNexusClient({
+ *   clientId: 'your-app-name',
  *   analytics: {
  *     privacy: {
  *       anonymizeWallets: true,  // Hash wallet addresses with SHA-256
@@ -54,6 +55,7 @@
  * You can use your own PostHog instance:
  * ```typescript
  * const sdk = createNexusClient({
+ *   clientId: 'your-app-name',
  *   analytics: {
  *     posthogApiKey: 'your-key',
  *     posthogApiHost: 'https://your-posthog.com'
@@ -66,8 +68,10 @@ import { clamp, omit } from 'es-toolkit';
 import { version } from '../../package.json' with { type: 'json' };
 import type { ChainListType, TimingSpanHooks } from '../domain';
 import { type OperationName, toError } from '../domain/errors';
-import { getLogger } from '../domain/utils/logger';
+import { getLogger } from '../domain/logger';
+import { getErrorReportingProperties } from '../services/error-reporting';
 import { reportOperationError } from '../services/error-telemetry';
+import { reportTelemetryEvent } from '../services/telemetry';
 import type { NexusOperationName } from './events';
 import { type NexusAnalyticsEvent, NexusAnalyticsEvents } from './events';
 import { PerformanceTracker } from './performance';
@@ -134,7 +138,7 @@ export type AnalyticsNetwork = 'mainnet' | 'testnet' | 'canary' | 'custom';
  * boundary is intentional: SigNoz holds error details (via
  * `reportOperationError` in `services/error-telemetry`), PostHog holds the
  * outcome. Exported so unit tests can assert the filter directly without
- * reaching through a full `trackBridge` flow.
+ * reaching through a full swap flow.
  */
 export function sanitizePerformanceSpanForPostHog(span: SpanProperties): Record<string, unknown> {
   const { errorMessage: _errorMessage, errorType: _errorType, ...payload } = span;
@@ -152,13 +156,16 @@ export class AnalyticsManager {
   private sdkVersion: string;
   private network?: AnalyticsNetwork;
   private chainListGetter?: () => ChainListType | null | undefined;
+  private clientId?: string;
 
   constructor(
     network: AnalyticsNetwork,
     config?: AnalyticsConfig,
     devTiming?: DevTimingConfig,
-    chainListGetter?: () => ChainListType | null | undefined
+    chainListGetter?: () => ChainListType | null | undefined,
+    clientId?: string
   ) {
+    this.clientId = clientId;
     this.chainListGetter = chainListGetter;
     this.config = config || { enabled: true };
     this.devTiming = this.resolveDevTimingConfig(devTiming);
@@ -300,13 +307,10 @@ export class AnalyticsManager {
    */
   private registerGlobalProperties(): void {
     const globalProps: Record<string, unknown> = {
+      ...this.getTelemetryIdentity(),
       sdkVersion: this.sdkVersion,
       sessionId: this.session.getSessionId(),
     };
-
-    if (this.network) {
-      globalProps.network = this.network;
-    }
 
     if (this.config.appMetadata?.appName) {
       globalProps.appName = this.config.appMetadata.appName;
@@ -436,6 +440,7 @@ export class AnalyticsManager {
 
     const eventProps: Record<string, unknown> = {
       ...sanitized,
+      ...this.getTelemetryIdentity(),
       timestamp: new Date().toISOString(),
     };
 
@@ -449,7 +454,11 @@ export class AnalyticsManager {
       salt: this.session.getSessionId().substring(0, 16),
     }) as Record<string, unknown>;
 
-    this.provider.track(event, normalized);
+    try {
+      this.provider.track(event, normalized);
+    } catch (error) {
+      logger.warn('Analytics event emission failed', { event, error });
+    }
 
     if (this.config.debug) {
       logger.debug(`[AnalyticsManager] Event tracked: ${event}`, eventProps);
@@ -632,8 +641,8 @@ export class AnalyticsManager {
    * public-op invocation they're running under — the parent comes from the
    * scoped hook injected into `deps.timing`.
    *
-   * @internal Boundary plumbing used by `src/core/sdk/operation-boundary.ts`
-   *   and `src/core/sdk/base.ts` to wire dev-timing parents. Not a stable
+   * @internal Boundary plumbing used by `src/client/operation-boundary.ts`
+   *   and `src/client/base.ts` to wire dev-timing parents. Not a stable
    *   integrator-facing API — keep callers inside the SDK.
    */
   scopedTimingHooks(parentSpanId?: string): TimingSpanHooks {
@@ -704,6 +713,23 @@ export class AnalyticsManager {
     return this.session.getSessionId();
   }
 
+  /** @internal Per-record identity; never store client or session IDs on shared resources. */
+  getTelemetryIdentity(): Record<string, string> {
+    return {
+      ...(this.clientId ? { 'nexus.client.id': this.clientId } : {}),
+      'surface.name': 'nexus-sdk',
+      'surface.version': this.sdkVersion,
+      'session.id': this.session.getSessionId(),
+      'nexus.network': this.network ?? 'mainnet',
+    };
+  }
+
+  /** @internal Emit the same bounded lifecycle record to product analytics and OTel. */
+  reportEvent(event: NexusAnalyticsEvent, properties: Record<string, unknown>): void {
+    this.track(event, properties);
+    reportTelemetryEvent(event, { ...properties, ...this.getTelemetryIdentity() });
+  }
+
   /**
    * Get the underlying provider (for advanced usage)
    */
@@ -733,7 +759,7 @@ export class AnalyticsManager {
   getBaseProperties(): BaseEventProperties {
     return {
       sdkVersion: this.sdkVersion,
-      network: this.network || 'mainnet',
+      'nexus.network': this.network || 'mainnet',
       appName: this.config.appMetadata?.appName,
       appUrl: this.config.appMetadata?.appUrl,
       timestamp: new Date().toISOString(),
@@ -744,19 +770,18 @@ export class AnalyticsManager {
   // ──────────────────────────────────────────────────────────────────────────
   // Boundary orchestration
   //
-  // Public-op wrappers live in `src/core/sdk/operation-boundary.ts` (so the
-  // analytics layer stays generic and doesn't import core/swap types). Those
+  // Public-op wrappers live in `src/client/operation-boundary.ts` (so the
+  // analytics layer stays generic and doesn't import client/intent types). Those
   // wrappers call `runOp` which owns the full lifecycle: `track(INITIATED)` →
   // `startOperation` → run → `track(SUCCESS)` + `endOperation(success)` on
   // the happy path, or `trackPlanRejectedIfApplicable` (when configured) +
   // `track(FAILED)` + `reportOperationError` + `endOperation(failure)` +
-  // `throw` on the catch path. PostHog payloads carry only input-param
-  // context — error details (message, code, category, step ids) flow
-  // exclusively through OTel.
+  // `throw` on the catch path. Product events carry bounded reason metadata;
+  // messages, stacks, and raw diagnostics remain exclusively in OTel logs.
   // ──────────────────────────────────────────────────────────────────────────
 
   /**
-   * @internal Boundary plumbing used by `src/core/sdk/operation-boundary.ts`.
+   * @internal Boundary plumbing used by `src/client/operation-boundary.ts`.
    *   The lifecycle contract (initiated → start → run → success/failed +
    *   endOperation + throw) is the load-bearing piece — do not call from
    *   integrator code or sketch out a parallel boundary on top of it.
@@ -779,28 +804,46 @@ export class AnalyticsManager {
     run: (opId: string) => Promise<TResult>;
     success?: (result: TResult) => Record<string, unknown>;
     selectSuccessEvent?: (result: TResult) => NexusAnalyticsEvent;
+    operationId?: string;
+    properties?: () => Record<string, unknown>;
+    selectFailureEvent?: (error: unknown) => NexusAnalyticsEvent | null;
   }): Promise<TResult> {
+    const opId = cfg.operationId ?? this.startOperation(cfg.opName);
+    const properties = () => ({ 'operation.id': opId, ...cfg.properties?.() });
     if (cfg.events.initiated) {
-      this.track(cfg.events.initiated, cfg.initiatedProps);
+      this.track(cfg.events.initiated, { ...cfg.initiatedProps, ...properties() });
     }
-    const opId = this.startOperation(cfg.opName);
     try {
       const result = await cfg.run(opId);
       const successEvent = cfg.selectSuccessEvent?.(result) ?? cfg.events.success;
       const successAdditional = cfg.success?.(result) ?? {};
-      this.track(successEvent, { ...(cfg.initiatedProps ?? {}), ...successAdditional });
+      this.reportEvent(successEvent, {
+        ...cfg.initiatedProps,
+        ...successAdditional,
+        ...properties(),
+      });
       this.endOperation(opId, { success: true });
       return result;
     } catch (error) {
       if (cfg.events.planRejected) {
         this.trackPlanRejectedIfApplicable(error, cfg.events.planRejected);
       }
-      this.track(cfg.events.failed, cfg.failedProps ?? cfg.initiatedProps);
+      const failureEvent = cfg.selectFailureEvent
+        ? cfg.selectFailureEvent(error)
+        : cfg.events.failed;
+      if (failureEvent) {
+        this.track(failureEvent, {
+          ...(cfg.failedProps ?? cfg.initiatedProps),
+          ...properties(),
+          ...getErrorReportingProperties(error),
+        });
+      }
       reportOperationError({
         operation: cfg.operation,
         operationId: opId,
         params: cfg.params,
         options: cfg.options,
+        attributes: { ...this.getTelemetryIdentity(), ...properties() },
         error,
       });
       this.endOperation(opId, { success: false, error: toError(error) });

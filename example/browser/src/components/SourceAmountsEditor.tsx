@@ -1,12 +1,17 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import type { NexusClient } from "@avail-project/nexus-core";
 import { formatAmount } from "../lib/format";
 import { D } from "../lib/math";
 import type { SourceOption } from "../lib/types";
-import { AssetRowIcon, ChevronIcon } from "./AssetRow";
-import { SourceSelectorModal } from "./SourceSelectorModal";
+import { AssetRowIcon } from "./AssetRow";
+import { DestinationSelector } from "./DestinationSelector";
+import { getSwapChainOptions } from "../lib/destinationTokens";
 
 type SourceAmountsEditorProps = {
-  /** All flattened balances (one entry per chain × token). */
+  client: NexusClient | null;
+  showBalances: boolean;
+  onAddSource: (source: SourceOption) => void;
+  /** Catalog selections, supplemented with wallet balances when connected. */
   sources: SourceOption[];
   /** Explicitly-selected source ids ([] = none). */
   selectedIds: string[];
@@ -15,15 +20,6 @@ type SourceAmountsEditorProps = {
   amounts: Record<string, string>;
   onAmountChange: (id: string, value: string) => void;
 };
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
-  );
-}
 
 // Matches the close glyph used by the picker modals (see SourceSelectorModal).
 function CloseIcon() {
@@ -43,23 +39,17 @@ function rowFiat(s: SourceOption, amount?: string): number {
   return D(amount).times(price).toNumber();
 }
 
-/**
- * Exact-in "Send" editor: pick multiple source assets (via the shared
- * SourceSelectorModal) and give each its own input amount, with a running USD
- * total. Each row reads amount-first (left) → token (right), mirroring the
- * receive card. The picker's "all selected → []" convention is normalized to
- * explicit ids on apply so amounts always map to a concrete, removable row.
- */
+/** Exact-input amounts can be selected from the catalog before wallet balances are available. */
 export function SourceAmountsEditor({
+  client,
+  showBalances,
+  onAddSource,
   sources,
   selectedIds,
   onSelectedChange,
   amounts,
   onAmountChange,
 }: SourceAmountsEditorProps) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-
-  const allIds = useMemo(() => sources.map((s) => s.id), [sources]);
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const rows = useMemo(
     () => sources.filter((s) => selectedSet.has(s.id)),
@@ -67,7 +57,6 @@ export function SourceAmountsEditor({
   );
 
   const totalFiat = rows.reduce((acc, s) => acc + rowFiat(s, amounts[s.id]), 0);
-  const noBalances = sources.length === 0;
 
   return (
     <div className="field-full send-card">
@@ -75,26 +64,28 @@ export function SourceAmountsEditor({
         <span className="source-selector-label">
           <span>Send</span>
         </span>
-        <button
-          type="button"
-          className="add-asset-btn"
-          onClick={() => setPickerOpen(true)}
-          disabled={noBalances}
-        >
-          <PlusIcon />
-          Add asset
-        </button>
+        <DestinationSelector
+          direction="source"
+          client={client}
+          chains={getSwapChainOptions(client, "source")}
+          options={[]}
+          selectedId=""
+          placeholder="Add asset"
+          balances={showBalances ? sources : undefined}
+          onSelect={(option) => {
+            if (!option.tokenAddress) return;
+            onAddSource({
+              id: option.id, chainId: option.chainId, chainName: option.chainName,
+              chainLogo: option.chainLogo ?? "", tokenAddress: option.tokenAddress,
+              symbol: option.symbol, tokenLogo: option.tokenLogo, decimals: option.decimals,
+              balance: "0", value: "0",
+            });
+          }}
+        />
       </div>
 
       {rows.length === 0 ? (
-        <button
-          type="button"
-          className="send-empty"
-          onClick={() => setPickerOpen(true)}
-          disabled={noBalances}
-        >
-          {noBalances ? "No balances available." : "Add an asset to send"}
-        </button>
+        <p className="send-empty">Add an asset to send</p>
       ) : (
         <>
           <div className="send-list">
@@ -112,24 +103,20 @@ export function SourceAmountsEditor({
                       aria-label={`${s.symbol} on ${s.chainName} amount`}
                     />
                     <div className="send-asset-sub">
-                      <button
+                      {showBalances && <button
                         type="button"
                         className="send-asset-max"
                         onClick={() => onAmountChange(s.id, s.balance)}
                       >
                         Max {formatAmount(s.balance)}
-                      </button>
-                      {usd > 0 && (
+                      </button>}
+                      {showBalances && usd > 0 && (
                         <span className="send-asset-usd">≈ ${formatAmount(usd, 2)}</span>
                       )}
                     </div>
                   </div>
-                  <button
-                    type="button"
+                  <div
                     className="dest-trigger"
-                    onClick={() => setPickerOpen(true)}
-                    aria-haspopup="dialog"
-                    aria-label={`Change ${s.symbol} on ${s.chainName}`}
                   >
                     <AssetRowIcon
                       size="sm"
@@ -138,10 +125,7 @@ export function SourceAmountsEditor({
                       badge={{ src: s.chainLogo, fallback: s.chainName }}
                     />
                     <span className="dest-trigger-symbol">{s.symbol}</span>
-                    <span className="dest-trigger-chevron" aria-hidden="true">
-                      <ChevronIcon open={false} />
-                    </span>
-                  </button>
+                  </div>
                   <button
                     type="button"
                     className="ghost-button send-asset-remove"
@@ -156,20 +140,13 @@ export function SourceAmountsEditor({
               );
             })}
           </div>
-          <div className="send-total">
+          {showBalances && totalFiat > 0 && <div className="send-total">
             <span>Total</span>
             <span className="send-total-value">≈ ${formatAmount(totalFiat, 2)}</span>
-          </div>
+          </div>}
         </>
       )}
 
-      <SourceSelectorModal
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        sources={sources}
-        selectedIds={selectedIds}
-        onApply={(ids) => onSelectedChange(ids.length === 0 ? allIds : ids)}
-      />
     </div>
   );
 }

@@ -189,13 +189,6 @@ These are derived from current `App.css`. When adding new components, follow the
 - Focus: 2px solid `--accent` outline with 2px offset (from `:focus-visible` global).
 - Label sits above, color `--muted`, size `--text-base`, uppercase tracking-wide if it's a label-cap.
 
-### Dropdowns
-
-- Trigger looks like an input.
-- Menu (`.dropdown-menu`) uses `--panel` bg, `--line-strong` border, `--radius-md`, backdrop blur, custom shadow.
-- Items default to `--muted` color. Hover/focused fades in a subtle bg tint and shifts color to `--text`. No translate or slide — Nexus hovers are color-only.
-- Active item gets `--primary-soft` bg and `--accent-light` text (in light mode this is `--nexus-blue-700`, visible; in dark this is `--nexus-blue-100`, also visible).
-
 ### Pills & badges
 
 - `.meta-pill` — rounded 999px, soft accent tint background, accent-colored text/border.
@@ -315,9 +308,9 @@ The checkbox primitive (`.checkbox`) has three states: default, `.checked` (blue
 
 ### Destination selector
 
-Single-select picker used by every operation tab (Exact Out Swap, Swap & Execute, Bridge, Bridge & Execute). Replaces the previous pair of chain + token dropdowns.
+Single-select picker used by every operation tab (Exact Out Swap, Exact In Swap, Swap & Execute). Replaces the previous pair of chain + token dropdowns.
 
-- **`DestinationSelector`** is composed in `OperationPage` from `form.chainOptions` × `config.getTokenOptions(client, chainId)` — flattened into a `DestinationOption[]`. Each option has `chainId`, `chainName`, `chainLogo?`, `symbol`, `label`, `tokenLogo?`, `tokenAddress?`, `decimals?`.
+- **`DestinationSelector`** fetches one 50-token destination page when opened on swap tabs. Symbol/address searches are debounced by 250 ms and chain/search filters go to the API. Previous/Next use candidate-page offsets, including pages with no directional matches. Loading, failure, and retry states appear in the list. Selection stays separate from the visible page. Deposit tabs use their fixed protocol token options.
 - **Trigger** (`.dest-trigger`) — a **compact pill** with the token icon (chain badge in lower-right), the token symbol, and a small chevron. No "on Chain" sub-line — the chain is communicated via the badge overlay. Inline-flex, rounded `--radius-pill`, fits inside a row alongside other content like an amount input.
 - **Modal** uses the same `.modal-panel` / `.src-modal-header` / `.src-list` chrome as the source picker. Title is "Choose asset to receive", subtitle "Select token and destination chain".
 - **Flat list, single-select** — each row is one `(token, chain)` combo. Clicking a row calls `onSelect(option)` and closes the modal (no Apply button; no checkbox). The selected row gets `.src-group.is-open` styling.
@@ -428,14 +421,9 @@ The steps card (`.exec-steps`) — second white card, only this scrolls internal
 | `done` | Filled `var(--accent)` circle with white checkmark | `var(--text)`, weight 600 | Muted "`X` sec ago" (from `step.completedAt`) |
 | `failed` | Filled `var(--danger)` circle with white X | `var(--text)`, weight 600 | `var(--danger)` error message |
 
-The `rawState` field on `NormalizedStep` captures the SDK's raw state string (`"wallet_prompted"`, `"started"`, `"submitted"`, `"confirmed"`, `"failed"`) so the UI can tell wallet-prompt steps apart from automated / server-side execution. The previous blanket "Approve in wallet" sub-text was misleading for steps like `bridge_fill` / `vault_deposit` / `destination_swap` / `request_submission` that don't need a wallet popup.
+The `rawState` field on `NormalizedStep` retains the SDK's step state (`"started"`, `"completed"`, `"failed"`), while `state` maps it to the UI's active, done, or failed state.
 
-Swap `allowance` steps use their amount and confirmed `method` to render an Authorize, Approve, or
-Permit label. Because the SDK emits their progress through the adjacent execution step, a leading
-allowance becomes active when execution starts, later allowances activate after the preceding step,
-and each completes when the following planned step starts.
-
-Steps stay in **natural execution order**. The active step shows a chevron toggle in place; **collapsed** (the default) renders completed allowance rows plus the active row, while **expanded** reveals the full plan with the active row still in its real position — never lifted to the top. A `useEffect` with `setInterval(setNow(Date.now()), 1000)` ticks every second so "X sec ago" stays fresh.
+Steps stay in **natural execution order**. The active step shows a chevron toggle in place; **collapsed** (the default) renders only that active row, **expanded** reveals the full plan with the active row still in its real position — never lifted to the top. A `useEffect` with `setInterval(setNow(Date.now()), 1000)` ticks every second so "X sec ago" stays fresh.
 
 **Success body (`<CompletedBody>`)** — the gif hero swaps to `.exec-success-hero`: large destination token icon with a small `var(--accent)` check-badge overlay (`.exec-success-check`), "You received" eyebrow, big amount + small symbol, `on <Chain> · completed in <N>s` meta line. Duration is `state.completedAt − state.startedAt`.
 
@@ -477,18 +465,13 @@ Toggle button label swap (`Hide Details` / `View Details`) and chevron rotation 
 
 **`ExecutionProgressState`** (in `lib/types.ts`) holds: `phase`, `steps`, `operationType`, `resultLinks`, `header?`, `result?`, `startedAt`, `completedAt?`, `failureKind?`, `failureReason?`. `NormalizedStep` adds `rawState?`, `completedAt?`.
 
-`useExecutionProgress` (in `hooks/useExecutionProgress.ts`) exposes `state`, `openModal(header?)`, `closeModal()`, `handleEvent(ev)`, `handleError(err, opts?)`, and `attachResult(result)`. The hook also logs `plan_preview` / `plan_confirmed` (raw steps + normalized list) and per-step terminal transitions (raw event, raw step, normalized step, all-steps snapshot) to the console — useful for SDK debugging.
+`useExecutionProgress` (in `hooks/useExecutionProgress.ts`) exposes `state`, `openModal(header?)`, `closeModal()`, `handleEvent(ev)`, `handleError(err, opts?)`, `attachResult(result)`, and `complete(result)`. It consumes `quote`, `step`, and `status` events. The deposit tab emits a `step` completion with its transaction hash and explorer URL after execution returns. `useOperationForm` passes the returned operation result to `complete`, which replaces the form amount with the final destination route amount and merges explorer links without duplicates before showing success. Swaps display “You received”; deposits display “You deposited” with the full deposit amount rather than the funding shortfall. Fulfillment alone keeps the modal pending until the result is ready.
 
 ### Topbar & tabs
 
 - Topbar (`.topbar`) — `--panel` bg, `--line` border, `--radius-xl`.
 - Route tabs (`.route-tabs`) — same surface treatment. Active tab is a tinted pill: `background: var(--primary-soft)`, `color: var(--accent)`. Hover on an inactive tab uses `--accent-soft`. The active state never goes solid filled — Nexus's segmented-control idiom keeps weight low.
 - Network switcher — inline-flex group of small ghost buttons with colored dots (`network-dot` mainnet=`--success`, canary=`--warning`, testnet=`--accent`).
-- Developer settings — the **Preview chains** switch selects the SDK channel. Off is `stable`
-  (the default); on is `preview`, including stable and preview chains. The choice persists in
-  local storage and applies to the main client and stress-test clients. Switching recreates the
-  client and resets cached balances and form selections. The settings indicator lights up when
-  preview chains or Force Mayan is enabled.
 
 ### Focus
 
@@ -525,7 +508,6 @@ A small set of named keyframe animations is defined in `App.css` and used across
 | `step-pulse` | Pulsing glow on the active execution step icon |
 | `line-appear` | Sequential text reveal on result rows |
 | `intent-pulse` | Pulsing dot on `running` status pill |
-| `dropdown-in` | Dropdown menu fade-in |
 | `token-info-in` | TokenInfoCard hover popover fade + translate |
 | `modal-in` / `fade-in` | Modal panel + overlay entrance |
 | `exec-step-enter` | Sequential step row entrance in the execution modal |
@@ -550,10 +532,8 @@ All financial / display math goes through `decimal.js` (declared in `package.jso
 |---|---|
 | `D(value)` | Coerce `string \| number \| Decimal \| null \| undefined` to `Decimal`. Empty / nullish → `0`. |
 | `sum(values)` | Exact addition across an array. Returns `Decimal`. |
-| `diff(a, b)` | `a - b` as `Decimal`. |
 | `gt(a, b)` / `lte(a, b)` | Boolean comparisons (sign-safe across mixed strings / numbers). |
 | `pctOf(have, need)` | `have / need * 100`, clamped to `[0, 100]`, returned as a `number`. Returns `100` when `need <= 0`. |
-| `ceilDp(value, dp)` | Ceiling to `dp` decimal places, returned as a fixed-decimal string. Used for fees (`ceil4` in `lib/nexus.ts`). |
 | `toFixed(value, dp)` | Fixed-decimal string with `dp` places. Used for totals, USD aggregates. |
 | `trimDp(value, dp)` | Round to at most `dp` decimal places, dropping trailing zeros. Goes through `.toFixed(dp)` then strips `0+$` and the trailing `.` via regex. Used for displaying SDK-provided amounts where we want max-N precision without padding (e.g. source-row USDs at `dp=6`). |
 
