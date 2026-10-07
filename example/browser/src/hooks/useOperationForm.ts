@@ -326,7 +326,7 @@ export function useOperationForm({
           });
         }
       } else {
-        progress.handleError(error, { kind: "failed" });
+        progress.handleError(error, { kind: "failed", reason: getErrorMessage(error) });
       }
       if (code !== ERROR_CODES.USER_INTENT_HOOK_DENIED) {
         logError(`execute:${config.id}`, error);

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createNexusClient,
+  ERROR_CODES,
+  getIntentQuoteFailure,
   NexusError,
   UserActionError,
   type IntentBalance,
@@ -257,7 +259,30 @@ export function logError(label: string, error: unknown) {
 
 export function getErrorMessage(error: unknown): string {
   if (error instanceof UserActionError) return "Transaction cancelled in wallet.";
-  if (error instanceof NexusError) return trimErrorMessage(error.message);
+  if (error instanceof NexusError) {
+    switch (error.code) {
+      case ERROR_CODES.BACKEND_VALUE_ABOVE_CEILING: {
+        const maxValueUsd = getIntentQuoteFailure(error)?.details.maxValueUsd;
+        if (typeof maxValueUsd === "number" && Number.isFinite(maxValueUsd) && maxValueUsd >= 0) {
+          const limit = maxValueUsd.toLocaleString("en-US", {
+            style: "currency",
+            currency: "USD",
+            maximumFractionDigits: 20,
+          });
+          return `This swap exceeds the ${limit} limit. Reduce the amount.`;
+        }
+        return "This swap exceeds the supported limit. Reduce the amount.";
+      }
+      case ERROR_CODES.BACKEND_INPUT_BELOW_DEPOSIT_FEE:
+        return "The amount is too small to cover the deposit fee. Increase the source amount.";
+      case ERROR_CODES.BACKEND_NO_ROUTE_TO_DESTINATION:
+        return "This destination is unavailable for the selected route. Choose another destination token or chain.";
+      case ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE:
+        return "No route is available from these sources. Change the source token or chain, or review the amounts.";
+      default:
+        return trimErrorMessage(error.message);
+    }
+  }
   if (error instanceof Error) {
     if (
       error.name === "UserRejectedRequestError" ||
