@@ -298,8 +298,20 @@ console.log(history.intents, history.total);
 
 All SDK errors extend `NexusError` and carry `category`, `code`, `context`, and optional `details`.
 Use `UserActionError` for denials and `ERROR_CODES` for specific recovery actions.
-`getIntentQuoteFailure(error)` extracts structured routing, balance, approval-gas, and price
+`getIntentQuoteFailure(error)` extracts structured routing, amount, balance, approval-gas, and price
 diagnostics. Handle codes rather than parsing message text. See the [error reference](docs/ERRORS.md).
+
+| Quote error constant (`ERROR_CODES.*`) | Recovery |
+| --- | --- |
+| `BACKEND_VALUE_ABOVE_CEILING` | Reduce the value; `getIntentQuoteFailure(error)?.details.maxValueUsd` is the USD limit |
+| `BACKEND_INPUT_BELOW_DEPOSIT_FEE` | Increase the source amount to cover the deposit fee |
+| `BACKEND_NO_ROUTE_TO_DESTINATION` | Choose a destination supported by the allowed providers |
+| `BACKEND_NO_ROUTABLE_SOURCE` | Review source verdicts and adjust the sources or mixed failure reasons |
+
+The middleware reports a specific amount or destination failure when all unroutable sources
+agree. These failures have `retryable: false`; change the request before retrying. Source verdicts
+can include `DESTINATION_NOT_SERVED`. A destination unsupported by every provider still follows
+token-not-supported handling.
 
 ```ts
 import {

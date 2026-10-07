@@ -38,6 +38,7 @@ const sourceVerdict = z.object({
       'ABOVE_PROVIDER_CEILING',
       'CURRENCY_MISMATCH',
       'NOT_IN_PROVIDER_CATALOG',
+      'DESTINATION_NOT_SERVED',
       'PROVIDER_REFUSED',
     ])
     .optional(),

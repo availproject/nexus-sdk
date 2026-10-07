@@ -20,8 +20,10 @@ import type {
   IntentOperationOptions,
   IntentLegStatus,
   IntentQuote,
+  IntentQuoteFailureSubcode,
   IntentRouteConstraints,
   IntentResult,
+  IntentSourceUnroutableReason,
   IntentRecord,
   IntentStatusResponse,
   IntentToken,
@@ -37,6 +39,16 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('exposes amount and destination quote recovery codes and diagnostic types', () => {
+    expect(rootModule.ERROR_CODES.BACKEND_VALUE_ABOVE_CEILING).toBe('backend/value_above_ceiling');
+    expect(rootModule.ERROR_CODES.BACKEND_NO_ROUTE_TO_DESTINATION).toBe('backend/no_route_to_destination');
+    expectTypeOf<Extract<IntentQuoteFailureSubcode,
+      'VALUE_ABOVE_CEILING' | 'NO_ROUTE_TO_DESTINATION' | 'INPUT_BELOW_DEPOSIT_FEE'
+    >>().toEqualTypeOf<'VALUE_ABOVE_CEILING' | 'NO_ROUTE_TO_DESTINATION' | 'INPUT_BELOW_DEPOSIT_FEE'>();
+    expectTypeOf<Extract<IntentSourceUnroutableReason, 'DESTINATION_NOT_SERVED'>>()
+      .toEqualTypeOf<'DESTINATION_NOT_SERVED'>();
+  });
+
   it('exposes token verification and an opt-in for unverified token queries', () => {
     expectTypeOf<IntentToken['verified']>().toEqualTypeOf<boolean>();
     expectTypeOf<IntentBalance['verified']>().toEqualTypeOf<boolean>();

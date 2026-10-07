@@ -120,6 +120,7 @@ export type IntentSourceUnroutableReason =
   | 'ABOVE_PROVIDER_CEILING'
   | 'CURRENCY_MISMATCH'
   | 'NOT_IN_PROVIDER_CATALOG'
+  | 'DESTINATION_NOT_SERVED'
   | 'PROVIDER_REFUSED';
 
 export type IntentSourceVerdict = {
@@ -133,6 +134,9 @@ export type IntentSourceVerdict = {
 
 export type IntentQuoteFailureSubcode =
   | 'NO_ROUTABLE_SOURCE'
+  | 'VALUE_ABOVE_CEILING'
+  | 'NO_ROUTE_TO_DESTINATION'
+  | 'INPUT_BELOW_DEPOSIT_FEE'
   | 'INTENT_REFUSED'
   | 'PROVIDER_UNAVAILABLE'
   | 'NO_PROVIDERS_ENABLED'

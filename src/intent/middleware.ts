@@ -134,6 +134,14 @@ const middlewareFailures: Readonly<Record<string, MiddlewareFailure>> = {
     ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE,
     'No route is available from the selected sources. Try different tokens, chains, or amounts.',
   ],
+  VALUE_ABOVE_CEILING: [
+    ERROR_CODES.BACKEND_VALUE_ABOVE_CEILING,
+    'The swap value exceeds the supported limit. Reduce the amount.',
+  ],
+  NO_ROUTE_TO_DESTINATION: [
+    ERROR_CODES.BACKEND_NO_ROUTE_TO_DESTINATION,
+    'No allowed provider supports this destination. Choose another destination.',
+  ],
   INTENT_REFUSED: [
     ERROR_CODES.BACKEND_INTENT_REFUSED,
     'The available providers cannot fulfill this swap. Try different sources or amounts.',
@@ -286,6 +294,9 @@ const middlewareErrorDetails = (error: unknown): Record<string, unknown> => {
   let intentQuoteFailure: Record<string, unknown> | undefined;
   const quoteFailureSubcodes = new Set([
     'NO_ROUTABLE_SOURCE',
+    'VALUE_ABOVE_CEILING',
+    'NO_ROUTE_TO_DESTINATION',
+    'INPUT_BELOW_DEPOSIT_FEE',
     'INTENT_REFUSED',
     'PROVIDER_UNAVAILABLE',
     'NO_PROVIDERS_ENABLED',
