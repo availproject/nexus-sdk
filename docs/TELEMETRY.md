@@ -158,6 +158,7 @@ the original SDK codes should use `error.type`.
 | `insufficient_funds` | Missing or insufficient source balance |
 | `insufficient_gas` | Source cannot fund approval gas |
 | `amount_too_small` | Amount cannot cover a deposit fee or minimum gas drop |
+| `amount_too_large` | Value exceeds the ceiling of every provider that could route the intent |
 | `quote_unavailable` | No usable quote, including `BACKEND_INTENT_REFUSED` |
 | `pricing` | Price unavailable, outlier, rate drift, or slippage |
 | `approval` | Insufficient allowance or sponsored approval relay failure |
@@ -181,6 +182,14 @@ other errors. Arbitrary diagnostic strings and display-message matching cannot c
 Product events contain only the bucket and existing bounded SDK code/category/service. Full messages,
 stacks, and sanitized details remain in OTel; middleware error IDs/codes/subcodes remain searchable
 there alongside the complete attempt/quote/intent IDs.
+
+`BACKEND_VALUE_ABOVE_CEILING` maps to `amount_too_large`;
+`BACKEND_NO_ROUTE_TO_DESTINATION` maps to `unsupported_route`;
+`BACKEND_INPUT_BELOW_DEPOSIT_FEE` retains `amount_too_small`. These quote refusals emit
+`attempt.outcome: rejected` before commitment. Blocked-session queries include `amount_too_large`
+as a service-side block; `amount_too_small` remains a user/integrator condition and
+`unsupported_route` remains a mixed bucket excluded from that rate. `blocked` is a query
+classification, not an SDK attempt outcome.
 
 ## Rollout and reconciliation
 

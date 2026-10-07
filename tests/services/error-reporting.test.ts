@@ -5,6 +5,9 @@ import { getErrorReportingProperties } from '../../src/services/error-reporting'
 describe('internal reporting reasons', () => {
   it.each([
     [ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE, 'unsupported_route'],
+    [ERROR_CODES.BACKEND_NO_ROUTE_TO_DESTINATION, 'unsupported_route'],
+    [ERROR_CODES.BACKEND_VALUE_ABOVE_CEILING, 'amount_too_large'],
+    [ERROR_CODES.BACKEND_INPUT_BELOW_DEPOSIT_FEE, 'amount_too_small'],
     [ERROR_CODES.BACKEND_INTENT_REFUSED, 'quote_unavailable'],
     [ERROR_CODES.BACKEND_INSUFFICIENT_BALANCE, 'insufficient_funds'],
     [ERROR_CODES.BACKEND_INSUFFICIENT_APPROVAL_GAS, 'insufficient_gas'],

@@ -215,6 +215,8 @@ export const ERROR_CODES = {
   BACKEND_CHAIN_NOT_SUPPORTED: 'backend/chain_not_supported',
   BACKEND_TOKEN_NOT_SUPPORTED: 'backend/token_not_supported',
   BACKEND_NO_ROUTABLE_SOURCE: 'backend/no_routable_source',
+  BACKEND_VALUE_ABOVE_CEILING: 'backend/value_above_ceiling',
+  BACKEND_NO_ROUTE_TO_DESTINATION: 'backend/no_route_to_destination',
   BACKEND_INTENT_REFUSED: 'backend/intent_refused',
   BACKEND_PROVIDER_UNAVAILABLE: 'backend/provider_unavailable',
   BACKEND_NO_PROVIDERS_ENABLED: 'backend/no_providers_enabled',

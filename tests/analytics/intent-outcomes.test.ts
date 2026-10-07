@@ -82,14 +82,19 @@ describe('payment attempt outcomes', () => {
     expect(s.track.mock.calls.some(([name]) => name === Events.SWAP_TRANSACTION_FAILED)).toBe(false);
   });
 
-  it('counts quote rejection separately and gives a retry a new ID', async () => {
+  it.each([
+    [ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE, 'unsupported_route'],
+    [ERROR_CODES.BACKEND_NO_ROUTE_TO_DESTINATION, 'unsupported_route'],
+    [ERROR_CODES.BACKEND_VALUE_ABOVE_CEILING, 'amount_too_large'],
+    [ERROR_CODES.BACKEND_INPUT_BELOW_DEPOSIT_FEE, 'amount_too_small'],
+  ])('counts %s quote rejection separately and gives a retry a new ID', async (code, bucket) => {
     const s = setup();
-    const error = new BackendError(ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE, 'Display only', { context: { service: 'middleware' } });
+    const error = new BackendError(code, 'Display only', { context: { service: 'middleware' } });
     await expect(s.run({ requestQuote: async () => { throw error; } })).rejects.toBe(error);
     await s.run();
     expect(s.outcomes().map((props) => props?.['attempt.outcome'])).toEqual(['rejected', 'completed']);
     expect(s.outcomes()[0]?.['attempt.id']).not.toBe(s.outcomes()[1]?.['attempt.id']);
-    expect(s.outcomes()[0]).toMatchObject({ 'error.code': 'unsupported_route', 'error.type': error.code });
+    expect(s.outcomes()[0]).toMatchObject({ 'error.code': bucket, 'error.type': error.code });
     expect(s.outcomes()[0]).not.toHaveProperty('reason.bucket');
   });
 

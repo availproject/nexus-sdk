@@ -62,6 +62,8 @@ describe('middleware error mapping', () => {
 
   it.each([
     ['NO_ROUTABLE_SOURCE', 'no_routable_source', /no route/i],
+    ['VALUE_ABOVE_CEILING', 'value_above_ceiling', /limit.*reduce the amount/i],
+    ['NO_ROUTE_TO_DESTINATION', 'no_route_to_destination', /destination.*choose another destination/i],
     ['INTENT_REFUSED', 'intent_refused', /cannot fulfill/i],
     ['PROVIDER_UNAVAILABLE', 'provider_unavailable', /providers.*unavailable/i],
     ['NO_PROVIDERS_ENABLED', 'no_providers_enabled', /no.*providers.*enabled/i],
@@ -100,6 +102,43 @@ describe('middleware error mapping', () => {
       middlewareCode: 'INVALID_REQUEST', middlewareSubcode: subcode, errorId: 'error-123',
       middlewareDetails: { shortfalls: [{ actual: '0', required: '10' }] },
     });
+  });
+
+  it.each([
+    ['VALUE_ABOVE_CEILING', 'ABOVE_PROVIDER_CEILING'],
+    ['NO_ROUTE_TO_DESTINATION', 'DESTINATION_NOT_SERVED'],
+    ['INPUT_BELOW_DEPOSIT_FEE', 'BELOW_DEPOSIT_FEE'],
+  ])('exposes recovery diagnostics for %s', async (subcode, reason) => {
+    const details = {
+      ...(subcode === 'VALUE_ABOVE_CEILING' ? { maxValueUsd: 500 } : {}),
+      providerReasons: ['nexus-v2: cannot quote this intent'],
+      sourceVerdicts: [{
+        chainId: 'EVM_1', tokenAddress: ACCOUNT, tokenSymbol: 'USDC', state: 'unroutable', reason,
+      }],
+    };
+    const error = await quoteError(responseError({
+      code: 'QUOTE_UNAVAILABLE', subcode, message: 'Internal diagnostic text',
+      errorId: 'quote-error-123', details,
+    }));
+    expect(getIntentQuoteFailure(error)).toEqual({
+      code: 'QUOTE_UNAVAILABLE', subcode, errorId: 'quote-error-123', retryable: false,
+      sourceVerdicts: [{ ...details.sourceVerdicts[0], chainId: 1 }],
+      providerReasons: details.providerReasons, details,
+    });
+    expect(error.details?.middlewareDetails).toEqual(details);
+  });
+
+  it('preserves source and destination verdicts on a mixed routing failure', async () => {
+    const sourceVerdicts = ['CURRENCY_MISMATCH', 'DESTINATION_NOT_SERVED'].map((reason) => ({
+      chainId: 'EVM_1', tokenAddress: ACCOUNT, tokenSymbol: 'USDC', state: 'unroutable', reason,
+    }));
+    const error = await quoteError(responseError({
+      code: 'QUOTE_UNAVAILABLE', subcode: 'NO_ROUTABLE_SOURCE', details: { sourceVerdicts },
+    }));
+    expect(error.code).toBe(ERROR_CODES.BACKEND_NO_ROUTABLE_SOURCE);
+    expect(getIntentQuoteFailure(error)?.sourceVerdicts).toEqual(
+      sourceVerdicts.map((verdict) => ({ ...verdict, chainId: 1 }))
+    );
   });
 
   it('retains quote diagnostics when optional source verdicts are malformed', async () => {

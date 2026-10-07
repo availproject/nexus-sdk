@@ -263,6 +263,8 @@ uppercase SDK name; `error` is the existing `BACKEND_ERROR` constant.
 | `TOKEN_NOT_SUPPORTED` | `token_not_supported` |
 | `INTERNAL_ERROR` | `error` |
 | `NO_ROUTABLE_SOURCE`, `MAYAN_NO_ROUTE` | `no_routable_source` |
+| `VALUE_ABOVE_CEILING` | `value_above_ceiling` |
+| `NO_ROUTE_TO_DESTINATION` | `no_route_to_destination` |
 | `INTENT_REFUSED` | `intent_refused` |
 | `PROVIDER_UNAVAILABLE`, `MAYAN_QUOTE_FETCH_FAILED`, `MAYAN_CALLDATA_BUILD_FAILED` | `provider_unavailable` |
 | `NO_PROVIDERS_ENABLED` | `no_providers_enabled` |
@@ -290,6 +292,20 @@ failures map to `network_error`. Other malformed responses use the operation's d
 
 `details` retains `error`, `middlewareCode`, `middlewareSubcode`, `errorId`, `middlewareDetails`,
 and `httpStatus`. Structured quote diagnostics remain available through `getIntentQuoteFailure`.
+
+`VALUE_ABOVE_CEILING`, `INPUT_BELOW_DEPOSIT_FEE`, and `NO_ROUTE_TO_DESTINATION` are recognized
+quote-failure subcodes. The helper preserves their normalized `sourceVerdicts`, `providerReasons`,
+`errorId`, and endpoint-specific `details`, with `retryable: false`. For `VALUE_ABOVE_CEILING`,
+`failure.details.maxValueUsd` contains the provider limit in USD; reduce the swap value. For
+`INPUT_BELOW_DEPOSIT_FEE`, increase the source amount. For `NO_ROUTE_TO_DESTINATION`, choose
+another destination supported by the allowed providers. The corresponding source verdict can
+carry `DESTINATION_NOT_SERVED`.
+
+These specific failures are reported when all unroutable sources agree on the required change.
+Source problems and mixed reasons retain `NO_ROUTABLE_SOURCE`. `NO_ROUTE_TO_DESTINATION` applies
+when the request's preferred providers exclude every provider serving the destination; a
+destination no provider supports still fails with `TOKEN_NOT_SUPPORTED`.
+
 Classification does not trigger retries. A submission timeout does not establish whether the
 intent was accepted; callers should check its status before retrying.
 

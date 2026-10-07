@@ -14,6 +14,16 @@ const QUOTE_ID = `0x${'11'.repeat(32)}`;
 const SIGNATURE_MESSAGE = `0x${'22'.repeat(32)}`;
 
 describe('Better Intent response normalization', () => {
+  it('preserves destination refusals in normalized quote source verdicts', () => {
+    const sourceVerdict = {
+      chainId: 'EVM_8453', tokenAddress: TOKEN, tokenSymbol: 'USDC',
+      state: 'unroutable', reason: 'DESTINATION_NOT_SERVED',
+    };
+    expect(normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), sourceVerdicts: [sourceVerdict],
+    }).quote.sourceVerdicts).toEqual([{ ...sourceVerdict, chainId: 8453 }]);
+  });
+
   it.each([true, false])('preserves verification status on tokens and balances (%s)', (verified) => {
     const asset = {
       universe: 'EVM', chainId: 'EVM_1', address: TOKEN, name: 'Token', symbol: 'TOKEN',
