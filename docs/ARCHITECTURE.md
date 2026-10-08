@@ -143,8 +143,9 @@ flow. Approval hooks are flow-control hooks and may deliberately allow or reject
 Exact-output accepts optional source chain/token pairs and a required destination raw amount.
 With omitted or empty sources, the SDK leaves wallet balance discovery to middleware. Explicit
 token selections are resolved on demand, checked against destination providers, and grouped by chain.
-Chain-only selections remain broad chain filters without enumerating their tokens. No surviving
-explicit source is a local `INVALID_INPUT` error; filtering never broadens a request accidentally.
+Unknown source chains and tokens are skipped. Chain-only selections remain broad chain filters
+without enumerating their tokens. No surviving explicit source is a local `INVALID_INPUT` error;
+filtering never broadens a request accidentally.
 Different source candidates can use different providers; middleware selects usable balances.
 
 ### Exact-input swap
@@ -216,6 +217,9 @@ both can narrow provider support.
 `getAvailableSourceTokens` and `getAvailableDestinationTokens` resolve selected tokens, intersect
 chain/token directional providers, request one provider-filtered candidate page, then apply local
 directional checks. Source results contain provider groups; destination results contain chains.
+Selected chains and tokens absent from the catalog are ignored by these picker helpers. An unknown
+destination produces an empty source page; backend failures still reject. Direct `getToken` lookups
+remain strict, and `confirmRouteExists` returns false if any selected identity is unsupported.
 Pagination metadata refers to candidates before local filtering. Consumers advance by offset plus
 limit, even if the filtered page is empty. Selection state is independent of a displayed page.
 `confirmRouteExists` checks only the selected identities and does not fetch candidate pages.

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createIntentCatalog } from '../../src/intent/catalog';
 import { testChains } from '../fixtures/chains';
 import { makeTokenFetcher } from '../helpers/catalog';
+import { Errors } from '../../src/domain/errors';
 
 describe('on-demand catalog', () => {
   it('resolves a token with a chain and contract lookup and shares concurrent requests', async () => {
@@ -50,6 +51,21 @@ describe('on-demand catalog', () => {
     await expect(catalog.getTokens()).resolves.toMatchObject({ total: 0 });
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+
+  it.each(['sources', 'destinations', 'exact-output'] as const)(
+    'propagates backend lookup failures when resolving %s', async (helper) => {
+      const error = Errors.backend('Catalog unavailable');
+      const catalog = createIntentCatalog(testChains, vi.fn().mockRejectedValue(error));
+      const token = testChains[0].tokens[1];
+      const ref = { chainId: token.chainId, tokenAddress: token.address };
+      const lookup = helper === 'sources'
+        ? catalog.getAvailableSourceTokens(ref)
+        : helper === 'destinations'
+          ? catalog.getAvailableDestinationTokens([ref])
+          : catalog.getExactOutputSources(token, [ref]);
+      await expect(lookup).rejects.toBe(error);
+    }
+  );
 
   it.each(['provider', 'verification'])('does not use %s-filtered metadata for an unrestricted token lookup', async (filter) => {
     const token = testChains[0].tokens[0];

@@ -93,6 +93,20 @@ export const createIntentCatalog = (
     return token;
   };
 
+  const findToken = async (chainId: number, address: Hex) => {
+    try {
+      return await getToken(chainId, address);
+    } catch (error) {
+      if (
+        error instanceof NexusError &&
+        (error.code === 'validation/chain_not_found' ||
+          error.code === 'validation/token_not_supported')
+      )
+        return undefined;
+      throw error;
+    }
+  };
+
   const tokenProviders = (token: IntentToken, role: 'asSource' | 'asDestination') => {
     const chain = getChain(token.chainId);
     const supported = chain[role] ?? chain.providers;
@@ -107,8 +121,12 @@ export const createIntentCatalog = (
       [...providers]
     );
 
-  const resolveTokens = (refs: TokenRef[]) =>
-    Promise.all(refs.map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress)));
+  const resolveAvailableTokens = async (refs: TokenRef[]) => {
+    const resolved = await Promise.all(
+      refs.map(({ chainId, tokenAddress }) => findToken(chainId, tokenAddress))
+    );
+    return resolved.filter((token) => token !== undefined);
+  };
 
   const candidatePage = async (
     providers: IntentProvider[],
@@ -146,10 +164,12 @@ export const createIntentCatalog = (
     query: IntentTokenQuery = {}
   ): Promise<IntentSourceTokenPage> => {
     const [target, selected] = await Promise.all([
-      getToken(destination.chainId, destination.tokenAddress),
-      resolveTokens(selectedSources),
+      findToken(destination.chainId, destination.tokenAddress),
+      resolveAvailableTokens(selectedSources),
     ]);
-    const supported = commonSourceProviders(selected, tokenProviders(target, 'asDestination'));
+    const supported = target
+      ? commonSourceProviders(selected, tokenProviders(target, 'asDestination'))
+      : [];
     const page = await candidatePage(supported, query);
     const { tokens: _tokens, ...pagination } = page;
     return {
@@ -165,7 +185,10 @@ export const createIntentCatalog = (
     sources: TokenRef[],
     query: IntentTokenQuery = {}
   ): Promise<IntentDestinationTokenPage> => {
-    const supported = commonSourceProviders(await resolveTokens(sources), INTENT_PROVIDERS);
+    const supported = commonSourceProviders(
+      await resolveAvailableTokens(sources),
+      INTENT_PROVIDERS
+    );
     const page = await candidatePage(supported, query);
     const { tokens: _tokens, ...pagination } = page;
     return { ...pagination, chains: matchingChains(page, 'asDestination', supported) };
@@ -179,7 +202,7 @@ export const createIntentCatalog = (
     try {
       const [target, selected] = await Promise.all([
         getToken(destination.chainId, destination.tokenAddress),
-        resolveTokens(sources),
+        Promise.all(sources.map(({ chainId, tokenAddress }) => getToken(chainId, tokenAddress))),
       ]);
       return commonSourceProviders(selected, tokenProviders(target, 'asDestination')).length > 0;
     } catch (error) {
@@ -213,14 +236,21 @@ export const createIntentCatalog = (
     const grouped = new Map<number, { chainId: number; tokens?: Hex[] }>();
     const candidates = await Promise.all(
       selected.map(async (source) => {
-        const chain = getChain(source.chainId);
-        const providers = source.tokenAddress
-          ? tokenProviders(await getToken(source.chainId, source.tokenAddress), 'asSource')
+        const chain = chainsById.get(source.chainId);
+        if (!chain) return undefined;
+        const token = source.tokenAddress
+          ? await findToken(source.chainId, source.tokenAddress)
+          : undefined;
+        if (source.tokenAddress && !token) return undefined;
+        const providers = token
+          ? tokenProviders(token, 'asSource')
           : (chain.asSource ?? chain.providers);
         return { source, chain, providers };
       })
     );
-    for (const { source, chain, providers } of candidates) {
+    for (const { source, chain, providers } of candidates.filter(
+      (candidate) => candidate !== undefined
+    )) {
       if (!providers.some((id) => supported.includes(id))) continue;
       const previous = grouped.get(chain.id);
       if (!source.tokenAddress) grouped.set(chain.id, { chainId: chain.id });

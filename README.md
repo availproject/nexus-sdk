@@ -91,7 +91,9 @@ by chain ID plus address.
 For exact-input pickers, pass existing sources to `getAvailableSourceTokens` so all selections
 share one provider. Exact-output sources are alternatives: use
 `getAvailableSourceTokens(destination, [], query)`. `confirmRouteExists` requires a provider shared
-by all sources and does not guarantee a quote. Lookup failures reject separately from empty pages.
+by all sources and does not guarantee a quote. Token pickers ignore selected tokens absent from the
+catalog; an unknown destination returns an empty source page. Direct token lookups and backend
+failures still reject.
 
 Route constraints accept `sources`, `destinations`, `providers`, and `valueUsd`. Legs accept
 `chainId?`, `tokenAddress?`, and `amountRaw?`; amounts require both identity fields. Use the same
@@ -102,7 +104,8 @@ or USD value. Amounts must be non-negative. Token queries do not inherit route c
 
 Exact output specifies what to receive. Omit `sources` (or pass `[]`) for automatic wallet funding;
 explicit sources restrict eligible chains and tokens. `toNativeAmountRaw` optionally requests
-destination native funds for gas.
+destination native funds for gas. Unsupported source candidates are skipped; if none remain, the
+swap rejects without broadening the source selection.
 
 ```ts
 const result = await client.swapWithExactOut({

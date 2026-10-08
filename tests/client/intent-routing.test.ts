@@ -197,6 +197,31 @@ describe('cached provider checks before quoting', () => {
     expect(ctx.getIntentBalances).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { chainId: 999 },
+    { chainId: 999, tokenAddress: TOKEN },
+    { chainId: 10, tokenAddress: OTHER_TOKEN },
+  ] as const)('skips unsupported exact-output source candidates (%#)', async (missing) => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])]);
+    await expect(ctx.base.swapWithExactOut({
+      ...destination, toAmountRaw: 10n, sources: [source(10), missing],
+    })).rejects.toBe(ctx.reachedQuote);
+    expect(ctx.getIntentQuote).toHaveBeenCalledWith(expect.objectContaining({
+      sources: [{ chainId: 'EVM_10', tokens: [TOKEN] }],
+    }), undefined);
+  });
+
+  it('rejects when skipping unsupported candidates removes every explicit source', async () => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])]);
+    await expect(ctx.base.swapWithExactOut({
+      ...destination, toAmountRaw: 10n,
+      sources: [{ chainId: 999 }, { chainId: 10, tokenAddress: OTHER_TOKEN }],
+    })).rejects.toMatchObject({
+      code: 'validation/invalid_input', message: expect.stringMatching(/no source/i),
+    });
+    expect(ctx.getIntentQuote).not.toHaveBeenCalled();
+  });
+
   it('keeps exact-output alternatives even when different sources use different providers', async () => {
     const ctx = await setup([
       chain(1, [], ['relay', 'mayan']), chain(10, ['relay'], []), chain(8453, ['mayan'], []),

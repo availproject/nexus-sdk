@@ -141,7 +141,28 @@ describe('public on-demand token selection helpers', () => {
     expect((await client.confirmRouteExists([ref(10)], ref(999)))).toBe(false);
     expect((await client.confirmRouteExists([ref(10, '0x1234')], ref(1)))).toBe(false);
     expect((await client.confirmRouteExists([ref(10)], ref(1, '0x1234')))).toBe(false);
+    expect((await client.confirmRouteExists([ref(10), ref(999)], ref(1)))).toBe(false);
+    expect((await client.confirmRouteExists([ref(10), ref(10, '0x1234')], ref(1)))).toBe(false);
   });
+
+  it.each([ref(999), ref(10, '0x00000000000000000000000000000000000000ef')])(
+    'ignores unsupported selected sources in token pickers (%#)', async (missing) => {
+      const { client } = await setup();
+      const selected = [ref(10, B)];
+      expect(await client.getAvailableSourceTokens(ref(1), [...selected, missing]))
+        .toEqual(await client.getAvailableSourceTokens(ref(1), selected));
+      expect(await client.getAvailableDestinationTokens([...selected, missing]))
+        .toEqual(await client.getAvailableDestinationTokens(selected));
+    }
+  );
+
+  it.each([ref(999), ref(1, '0x00000000000000000000000000000000000000ef')])(
+    'returns an empty source page for an unsupported destination (%#)', async (missing) => {
+      const { client } = await setup();
+      await expect(client.getAvailableSourceTokens(missing, [], { offset: 10, limit: 5 }))
+        .resolves.toEqual({ groups: [], total: 0, offset: 10, limit: 5 });
+    }
+  );
 
   it('preserves display metadata and directional provider objects when listing chain tokens', async () => {
     const { client, chains } = await setup();
@@ -185,14 +206,16 @@ describe('public on-demand token selection helpers', () => {
     expect((await client.getAvailableSourceTokens(ref(1))).groups).toEqual([]);
   });
 
-  it('keeps lookup errors typed while treating an empty catalog as having no routes', async () => {
+  it('keeps direct lookups strict while ignoring missing tokens in pickers', async () => {
     const { client } = await setup([]);
     expect((await client.getAvailableDestinationTokens([])).chains).toEqual([]);
     expect((await client.confirmRouteExists([ref(10)], ref(1)))).toBe(false);
     await expect(client.getTokensByChain(999)).rejects.toThrowError(expect.objectContaining({ code: 'validation/chain_not_found' }));
-    await expect(client.getAvailableSourceTokens(ref(999))).rejects.toThrowError(expect.objectContaining({ code: 'validation/chain_not_found' }));
+    await expect(client.getAvailableSourceTokens(ref(999))).resolves.toMatchObject({ groups: [], total: 0 });
     const loaded = (await setup()).client;
-    await expect(loaded.getAvailableDestinationTokens([ref(10, '0x1234')])).rejects.toThrowError(expect.objectContaining({ code: 'validation/token_not_supported' }));
+    await expect(loaded.getToken(ref(10, '0x1234'))).rejects.toMatchObject({ code: 'validation/token_not_supported' });
+    expect(await loaded.getAvailableDestinationTokens([ref(10, '0x1234')]))
+      .toEqual(await loaded.getAvailableDestinationTokens([]));
   });
 
   it('requires initialization for every asynchronous helper', async () => {
