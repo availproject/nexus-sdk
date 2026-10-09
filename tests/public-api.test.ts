@@ -185,6 +185,9 @@ describe('public api exports', () => {
     expect(route.sources[0]?.chainId).toBe(10);
     expect(getIntentQuoteFailure(new Error('not an SDK error'))).toBeNull();
     expectTypeOf(balance).toMatchTypeOf<IntentBalance>();
+    expectTypeOf<IntentBalance['actualBalanceRaw']>().toEqualTypeOf<bigint>();
+    expectTypeOf<IntentBalance['usableBalanceRaw']>().toEqualTypeOf<bigint>();
+    expectTypeOf<IntentBalance['balanceRaw']>().toEqualTypeOf<bigint>();
     expectTypeOf<IntentBalance['priceSource']>().toEqualTypeOf<'oracle' | 'indexer' | 'coingecko' | 'relay' | null>();
     expectTypeOf<IntentProviderSupport['currencyId']>().toEqualTypeOf<number | string | undefined>();
     expectTypeOf<keyof IntentFees>().toEqualTypeOf<

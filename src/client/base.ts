@@ -411,8 +411,8 @@ export const createBase = (config: {
       const nativeEntry = balances.find(
         (entry) => entry.chainId === input.toChainId && entry.isNative
       );
-      const tokenBalance = tokenEntry?.balanceRaw ?? 0n;
-      const nativeBalance = nativeEntry?.balanceRaw ?? 0n;
+      const tokenBalance = tokenEntry?.usableBalanceRaw ?? 0n;
+      const nativeBalance = nativeEntry?.usableBalanceRaw ?? 0n;
       const priced = await priceExecuteFunding(prepared);
       const funding = calculateIntentFunding({
         outputIsNative,

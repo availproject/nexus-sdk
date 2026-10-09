@@ -58,9 +58,13 @@ const amountRaw = parseUnits('10', token.decimals);
 
 const balances = await client.getBalances();
 for (const balance of balances) {
-  console.log(balance.symbol, formatUnits(balance.balanceRaw, balance.decimals), balance.usable);
+  console.log(balance.symbol, formatUnits(balance.usableBalanceRaw, balance.decimals), balance.usable);
 }
 ```
+
+Balances expose `actualBalanceRaw` (full wallet balance) and `usableBalanceRaw` (available for
+routing after gas reserves) as `bigint`. `balanceRaw` is a deprecated alias of `usableBalanceRaw`.
+`valueUsd` values the usable balance and is `null` when no price is available.
 
 | Catalog method | Returns |
 | --- | --- |

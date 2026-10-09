@@ -240,6 +240,9 @@ boolean, so balance discovery needs no token catalog download. Balances include 
 and unverified holdings without a verification request filter. All providers are included unless
 explicitly filtered.
 
+Balances expose `actualBalanceRaw` before reserves and `usableBalanceRaw` after reserves as bigint.
+The deprecated `balanceRaw` aliases `usableBalanceRaw`; `valueUsd` values the usable balance.
+
 Quote responses normalize `sourceVerdicts`. Structured quote failures are retained on the SDK
 error and exposed through `getIntentQuoteFailure`, including the middleware subcode, error ID,
 source verdicts, provider reasons, and whether retrying may help.

@@ -184,6 +184,8 @@ describe('Better Intent middleware transport', () => {
               isNative: false,
               verified: false,
               providers: [{ id: 'nexus-v2', currencyId: 1 }],
+              actualBalance: '42',
+              usableBalance: '42',
               balance: '42',
               valueUsd: 0,
               priceSource: 'oracle',
@@ -213,7 +215,9 @@ describe('Better Intent middleware transport', () => {
       client.getIntentBalances(ACCOUNT, { refresh: true, providers: ['mayan'] })
     ).resolves.toEqual({
       errored: false,
-      balances: [expect.objectContaining({ balanceRaw: 42n, verified: false })],
+      balances: [expect.objectContaining({
+        actualBalanceRaw: 42n, usableBalanceRaw: 42n, balanceRaw: 42n, verified: false,
+      })],
     });
     expect(http.get).toHaveBeenNthCalledWith(
       1,
