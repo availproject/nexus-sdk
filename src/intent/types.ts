@@ -167,7 +167,13 @@ export type IntentBalance = {
   logo?: string;
   coingeckoId?: string;
   providers: IntentProviderSupport[];
+  /** Full wallet balance before reserves, in base units. */
+  actualBalanceRaw: bigint;
+  /** Balance available for routing after reserves, in base units. */
+  usableBalanceRaw: bigint;
+  /** @deprecated Use usableBalanceRaw instead. */
   balanceRaw: bigint;
+  /** USD value of usableBalanceRaw, or null when the price is unavailable. */
   valueUsd: number | null;
   priceSource: 'oracle' | 'indexer' | 'coingecko' | 'relay' | null;
   usable: boolean;

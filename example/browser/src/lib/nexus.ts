@@ -183,7 +183,7 @@ export function groupBalances(client: NexusClient, balances: IntentBalance[]): T
 
   for (const balance of balances) {
     const chain = findChain(client, balance.chainId);
-    const readable = formatUnits(balance.balanceRaw, balance.decimals);
+    const readable = formatUnits(balance.usableBalanceRaw, balance.decimals);
     const value = String(balance.valueUsd ?? 0);
     const key = balance.symbol.toLowerCase();
     const asset = groups.get(key) ?? {

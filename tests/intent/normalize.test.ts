@@ -34,7 +34,8 @@ describe('Better Intent response normalization', () => {
     }).tokens[0]).toMatchObject({ verified });
     expect(normalizeIntentBalances({
       errored: false, balances: [{
-        ...asset, balance: '42', valueUsd: null, priceSource: null, usable: false,
+        ...asset, actualBalance: '42', usableBalance: '42',
+        balance: '42', valueUsd: null, priceSource: null, usable: false,
       }],
     }).balances[0]).toMatchObject({ verified, balanceRaw: 42n });
   });
@@ -49,7 +50,8 @@ describe('Better Intent response normalization', () => {
     })).toThrow(/tokens response/i);
     expect(() => normalizeIntentBalances({
       errored: false, balances: [{
-        ...asset, balance: '42', valueUsd: null, priceSource: null, usable: false,
+        ...asset, actualBalance: '42', usableBalance: '42',
+        balance: '42', valueUsd: null, priceSource: null, usable: false,
       }],
     })).toThrow(/balances response/i);
   });
@@ -139,7 +141,8 @@ describe('Better Intent response normalization', () => {
       errored: false, balances: [{
         universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
         name: 'USD Coin', symbol: 'USDC', decimals: 6, isNative: false, verified: true,
-        providers: [{ id: 'relay', currencyId: 'usdc' }], balance: '10',
+        providers: [{ id: 'relay', currencyId: 'usdc' }],
+        actualBalance: '10', usableBalance: '10', balance: '10',
         valueUsd: 0.00001, priceSource, usable: true,
       }],
     }).balances[0]).toMatchObject({ priceSource, balanceRaw: 10n });
@@ -187,7 +190,7 @@ describe('Better Intent response normalization', () => {
     }
   );
 
-  it('normalizes raw balances', () => {
+  it('preserves full and usable native balances without losing precision', () => {
     const balances = normalizeIntentBalances({
       errored: false,
       balances: [
@@ -195,12 +198,14 @@ describe('Better Intent response normalization', () => {
           universe: 'EVM',
           chainId: 'EVM_8453',
           address: TOKEN,
-          name: 'USD Coin',
-          symbol: 'USDC',
-          decimals: 6,
-          isNative: false,
+          name: 'Ether',
+          symbol: 'ETH',
+          decimals: 18,
+          isNative: true,
           verified: true,
           providers: [{ id: 'nexus-v2', currencyId: 1 }],
+          actualBalance: '9007199254740993',
+          usableBalance: '1234567',
           balance: '1234567',
           valueUsd: 1.23,
           priceSource: 'oracle',
@@ -215,11 +220,32 @@ describe('Better Intent response normalization', () => {
         expect.objectContaining({
           chainId: 8453,
           tokenAddress: TOKEN,
+          actualBalanceRaw: 9_007_199_254_740_993n,
+          usableBalanceRaw: 1_234_567n,
           balanceRaw: 1_234_567n,
         }),
       ],
     });
   });
+
+  it.each(['actualBalance', 'usableBalance'] as const)(
+    'rejects missing or malformed %s',
+    (field) => {
+      for (const invalid of [undefined, null, 42, '-1', '1.5']) {
+        expect(() => normalizeIntentBalances({
+          errored: false,
+          balances: [{
+            universe: 'EVM', chainId: 'EVM_1', address: TOKEN,
+            name: 'Token', symbol: 'TOKEN', decimals: 6, isNative: false,
+            verified: true, providers: [{ id: 'relay' }],
+            actualBalance: '42', usableBalance: '42', balance: '42',
+            valueUsd: null, priceSource: null, usable: false,
+            [field]: invalid,
+          }],
+        })).toThrow(/balances response/i);
+      }
+    }
+  );
 
   it('keeps signing, RFF, and ABI details outside the public quote', () => {
     const result = normalizeIntentQuote({
