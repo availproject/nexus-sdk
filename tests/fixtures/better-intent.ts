@@ -6,6 +6,7 @@ export const INTENT_SPENDER = '0x00000000000000000000000000000000000000cc' as He
 export const INTENT_ID = `0x${'11'.repeat(32)}` as Hex;
 export const INTENT_SIGNATURE = `0x${'22'.repeat(65)}` as Hex;
 export const APPROVAL_SIGNATURE = `0x${'33'.repeat(65)}` as Hex;
+export const QUOTE_SIGNATURE = `0x${'44'.repeat(65)}` as Hex;
 
 export const intentSignatureRequest = () => ({
   kind: 'intent' as const,
@@ -41,6 +42,7 @@ export const approvalSignatureRequest = () => ({
 
 export const sponsoredQuoteResponse = () => ({
   quoteId: INTENT_ID, provider: 'nexus-v2', tradeType: 'exactOutput',
+  quoteSignature: QUOTE_SIGNATURE,
   isExecutable: true, executionWarnings: [],
   input: [{
     chainId: 'EVM_8453', tokenAddress: INTENT_TOKEN, tokenSymbol: 'USDC',

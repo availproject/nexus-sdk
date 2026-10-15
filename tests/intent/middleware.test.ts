@@ -17,6 +17,7 @@ const makeAxios = () => ({ get: vi.fn(), post: vi.fn() });
 
 const quoteResponse = () => ({
   quoteId: QUOTE_ID,
+  quoteSignature: `0x${'44'.repeat(65)}`,
   provider: 'nexus-v2',
   tradeType: 'exactOutput',
   isExecutable: true,
@@ -81,7 +82,10 @@ describe('Better Intent middleware transport', () => {
         await mw.getIntentBalances(ACCOUNT, { attemptId: id });
         await mw.getIntentQuote(request, id);
         await mw.getIntentQuote(request, id);
-        await mw.submitIntent({ provider: 'nexus-v2', rff: {}, signatures: [] }, id);
+        await mw.submitIntent({
+          provider: 'nexus-v2', rff: {}, signatures: [],
+          fees: quoteResponse().fees, quoteSignature: quoteResponse().quoteSignature as Hex,
+        }, id);
         await mw.getIntentStatus(QUOTE_ID, id);
       }));
       for (const id of ['attempt-a', 'attempt-b']) {
@@ -293,11 +297,15 @@ describe('Better Intent middleware transport', () => {
     const quoted = await client.getIntentQuote(request);
     const submit = {
       provider: quoted.execution.provider,
+      fees: quoted.execution.fees,
+      quoteSignature: quoted.execution.quoteSignature,
       rff: quoted.execution.rff,
       signatures: [{ kind: 'intent' as const, universe: 'EVM' as const, signingScheme: 'personal_sign' as const, signature: `0x${'22'.repeat(65)}` as Hex }],
     };
 
     expect(quoted.quote.id).toBe(QUOTE_ID);
+    expect(quoted.execution.fees).toEqual(quoteResponse().fees);
+    expect(quoted.execution.quoteSignature).toBe(quoteResponse().quoteSignature);
     expect(quoted.quote).not.toHaveProperty('rff');
     await expect(client.submitIntent(submit)).resolves.toEqual({
       quoteId: QUOTE_ID,

@@ -66,6 +66,7 @@ const intentChains: IntentChain[] = [
 const quote = () =>
   normalizeIntentQuote({
     quoteId: QUOTE_ID,
+    quoteSignature: `0x${'44'.repeat(65)}`,
     provider: 'nexus-v2',
     tradeType: 'exactOutput',
     isExecutable: true,

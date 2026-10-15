@@ -14,6 +14,44 @@ const QUOTE_ID = `0x${'11'.repeat(32)}`;
 const SIGNATURE_MESSAGE = `0x${'22'.repeat(32)}`;
 
 describe('Better Intent response normalization', () => {
+  it.each(['nexus-v2', 'mayan', 'relay'] as const)(
+    'preserves the complete %s quote proof separately from public fees',
+    (provider) => {
+      const response = {
+        ...sponsoredQuoteResponse(),
+        provider,
+        fees: {
+          ...sponsoredQuoteResponse().fees,
+          deposit: '9007199254740993',
+          depositUsd: '0.003000',
+          fulfillment: '0002',
+          solver: '-2',
+          solverUsd: '-0.002000',
+          extension: { value: '01' },
+        },
+      };
+      const result = normalizeIntentQuote(response);
+      expect(result.execution).toMatchObject({
+        provider, fees: response.fees, quoteSignature: response.quoteSignature,
+      });
+      expect(result.quote.fees).toMatchObject({
+        depositRaw: 9007199254740993n, depositUsd: '0.003000',
+        fulfillmentRaw: 2n, solverRaw: -2n, solverUsd: '-0.002000',
+      });
+      expect(result.quote).not.toHaveProperty('quoteSignature');
+      expect(result.quote.fees).not.toHaveProperty('extension');
+    }
+  );
+
+  it.each([undefined, null, '', '0x1234', `0x${'11'.repeat(64)}`, `0x${'gg'.repeat(65)}`])(
+    'rejects a missing or malformed quote signature (%s)',
+    (quoteSignature) => {
+      expect(() => normalizeIntentQuote({
+        ...sponsoredQuoteResponse(), quoteSignature,
+      })).toThrow(/quote response/i);
+    }
+  );
+
   it('preserves destination refusals in normalized quote source verdicts', () => {
     const sourceVerdict = {
       chainId: 'EVM_8453', tokenAddress: TOKEN, tokenSymbol: 'USDC',
@@ -250,6 +288,7 @@ describe('Better Intent response normalization', () => {
   it('keeps signing, RFF, and ABI details outside the public quote', () => {
     const result = normalizeIntentQuote({
       quoteId: QUOTE_ID,
+      quoteSignature: sponsoredQuoteResponse().quoteSignature,
       provider: 'nexus-v2',
       tradeType: 'exactOutput',
       isExecutable: true,

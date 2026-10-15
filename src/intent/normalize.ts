@@ -21,6 +21,8 @@ const bytes = z.string().regex(/^0x(?:[0-9a-fA-F]{2})*$/);
 const hash = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
 const amount = z.string().regex(/^\d+$/);
 const usdAmount = z.string().regex(/^\d+(?:\.\d+)?$/);
+const feeAmount = z.string().regex(/^-?\d+$/);
+const feeUsdAmount = z.string().regex(/^-?\d+(?:\.\d+)?$/);
 const provider = z.enum(INTENT_PROVIDERS);
 const providerSupport = z.object({
   id: provider,
@@ -179,16 +181,19 @@ const quote = z.object({
   output: z.object({ chainId: z.string(), tokenAddress: address, amount, amountUsd: usdAmount }),
   minAmountOut: amount,
   minAmountOutUsd: usdAmount,
-  fees: z.object({
-    deposit: amount,
-    depositUsd: usdAmount,
-    fulfillment: amount,
-    fulfillmentUsd: usdAmount,
-    protocol: amount,
-    protocolUsd: usdAmount,
-    solver: amount,
-    solverUsd: usdAmount,
-  }),
+  fees: z
+    .object({
+      deposit: feeAmount,
+      depositUsd: feeUsdAmount,
+      fulfillment: feeAmount,
+      fulfillmentUsd: feeUsdAmount,
+      protocol: feeAmount,
+      protocolUsd: feeUsdAmount,
+      solver: feeAmount,
+      solverUsd: feeUsdAmount,
+    })
+    .passthrough(),
+  quoteSignature: z.string().regex(/^0x[0-9a-fA-F]{130}$/),
   expiry: amount,
   rff: z.record(z.string(), z.unknown()),
   rffHash: hash,
@@ -553,6 +558,8 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
     },
     execution: {
       provider: parsed.provider,
+      fees: parsed.fees,
+      quoteSignature: parsed.quoteSignature as Hex,
       rff: parsed.rff,
       requiredSignatures,
       allowances,

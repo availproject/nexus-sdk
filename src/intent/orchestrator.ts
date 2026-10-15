@@ -369,6 +369,8 @@ export const runIntent = async (
   try {
     await deps.submit({
       provider: executable.execution.provider,
+      fees: executable.execution.fees,
+      quoteSignature: executable.execution.quoteSignature,
       rff: executable.execution.rff,
       signatures,
       ...(nativeTxReceipts.length > 0 ? { nativeTxReceipts } : {}),
