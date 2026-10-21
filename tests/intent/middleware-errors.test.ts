@@ -5,6 +5,7 @@ import { Errors } from '../../src/domain/errors';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import type { IntentQuoteRequest } from '../../src/intent/types';
 import { createMiddlewareClient } from '../../src/intent/middleware';
+import { sponsoredQuoteResponse } from '../fixtures/better-intent';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 
@@ -199,6 +200,8 @@ describe('middleware error mapping', () => {
     }));
     await expect(createMiddlewareClient('https://middleware.example').submitIntent({
       provider: 'nexus-v2', rff: {}, signatures: [],
+      fees: sponsoredQuoteResponse().fees,
+      quoteSignature: sponsoredQuoteResponse().quoteSignature,
     })).rejects.toMatchObject({ code: 'backend/request_expired', message: expect.stringMatching(/new quote/i) });
   });
 

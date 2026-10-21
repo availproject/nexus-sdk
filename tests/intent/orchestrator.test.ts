@@ -80,6 +80,8 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
     },
     execution: {
       provider: 'nexus-v2',
+      fees: sponsoredQuoteResponse().fees,
+      quoteSignature: `0x${byte.repeat(65)}`,
       rff: { id },
       requiredSignatures: [{ ...intentSignatureRequest(), data: { ...intentSignatureRequest().data, hash: id } }],
       allowances: [
@@ -176,6 +178,7 @@ describe('Better Intent orchestration', () => {
     expect(result.approvals).toHaveLength(1);
     expect(submit).toHaveBeenCalledWith({
       provider: 'nexus-v2', rff: quoted.execution.rff,
+      fees: quoted.execution.fees, quoteSignature: quoted.execution.quoteSignature,
       signatures: [
         { kind: 'intent', universe: 'EVM', signingScheme: 'personal_sign', signature: INTENT_SIGNATURE },
         { kind: 'sourceApproval', universe: 'EVM', signingScheme: 'eip712', chainId: 8453,
@@ -415,7 +418,11 @@ describe('Better Intent orchestration', () => {
     const initial = executableQuote('11');
     initial.quote.isExecutable = false;
     const refreshed = executableQuote('22');
-    const submittedRff = vi.fn();
+    refreshed.execution.fees = {
+      ...refreshed.execution.fees, solver: '7', solverUsd: '0.007000',
+      extension: { value: '01' },
+    };
+    const submitted = vi.fn();
 
     const result = await runIntent(
       {
@@ -445,7 +452,7 @@ describe('Better Intent orchestration', () => {
           txExplorerUrl: 'native',
         }),
         submit: async (request) => {
-          submittedRff(request.rff);
+          submitted(request);
           return { quoteId: refreshed.quote.id, status: 'created' };
         },
         getStatus: async () => status(refreshed, 'fulfilled'),
@@ -453,7 +460,12 @@ describe('Better Intent orchestration', () => {
     );
 
     expect(result.quote.id).toBe(refreshed.quote.id);
-    expect(submittedRff).toHaveBeenCalledWith({ id: refreshed.quote.id });
+    expect(submitted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      provider: refreshed.execution.provider,
+      rff: { id: refreshed.quote.id },
+      fees: refreshed.execution.fees,
+      quoteSignature: refreshed.execution.quoteSignature,
+    }));
   });
 
   it('rejects expired intents instead of resolving a partial result', async () => {

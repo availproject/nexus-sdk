@@ -30,6 +30,7 @@ const quote = (request: IntentQuoteRequest, index: number) => {
   const id = `0x${index.toString(16).padStart(64, '0')}` as Hex;
   return normalizeIntentQuote({
     quoteId: id, provider: 'nexus-v2', tradeType: 'exactOutput', input: [],
+    quoteSignature: `0x${index.toString(16).padStart(2, '0').repeat(65)}`,
     isExecutable: true, executionWarnings: [],
     output: { chainId: request.output.chainId, tokenAddress: request.output.token,
       amount: request.output.amount, amountUsd: '1' },
@@ -221,6 +222,11 @@ describe('swap execution fee refresh', () => {
       await second;
     } } });
     expect(ctx.getIntentQuote.mock.calls.map(([request]) => request.gasDrop?.amount)).toEqual(['20160000', '37440000', '20160000']);
+    expect(ctx.submitIntent).toHaveBeenCalledWith(expect.objectContaining({
+      rff: { quoteId: `0x${'3'.padStart(64, '0')}` },
+      quoteSignature: `0x${'03'.repeat(65)}`,
+      fees: expect.objectContaining({ solver: '0', solverUsd: '0' }),
+    }), expect.any(String));
     expect(ctx.send.mock.calls[0][0]).toMatchObject({ feeParams: { maxFeePerGas: 168n } });
   });
 

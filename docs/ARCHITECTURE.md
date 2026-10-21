@@ -187,8 +187,12 @@ the SDK does not calculate a local threshold or compare provider quotes.
 
 `ExecutableIntentQuote` is internal. It additionally contains the RFF payload,
 `requiredSignatures` with personal-sign or EIP-712 data, approval calldata, native transaction
-ABI/request data, and provider submission data. Submission echoes each signature's identity with
-the produced signature, excluding its signing data.
+ABI/request data, and provider submission data. It retains the required middleware
+`quoteSignature` and complete wire `fees` object, including extra fee fields and exact string
+formatting. Submission echoes both unchanged from the accepted quote; normalized public fees
+must not be used to reconstruct them. Refresh replaces this proof with the rest of the quote.
+Submission also echoes each signature's identity with the produced signature, excluding its
+signing data.
 
 This separation prevents middleware wire details from becoming public API while keeping the
 approved quote auditable.

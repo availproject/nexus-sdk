@@ -337,8 +337,22 @@ export type IntentSubmittedSignature = {
   signature: Hex;
 };
 
+type IntentWireFees = {
+  deposit: string;
+  depositUsd: string;
+  fulfillment: string;
+  fulfillmentUsd: string;
+  protocol: string;
+  protocolUsd: string;
+  solver: string;
+  solverUsd: string;
+  [field: string]: unknown;
+};
+
 export type IntentExecutionInstructions = {
   provider: IntentProvider;
+  fees: IntentWireFees;
+  quoteSignature: Hex;
   rff: Record<string, unknown>;
   requiredSignatures: IntentRequiredSignature[];
   allowances: IntentApprovalInstruction[];
@@ -364,6 +378,8 @@ export type IntentQuoteRequest = {
 
 export type IntentSubmitRequest = {
   provider: IntentProvider;
+  fees: IntentWireFees;
+  quoteSignature: Hex;
   rff: Record<string, unknown>;
   signatures: IntentSubmittedSignature[];
   nativeTxReceipts?: Array<{ sourceIndex: number; txHash: Hex }>;
