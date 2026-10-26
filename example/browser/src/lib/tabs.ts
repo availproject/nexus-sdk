@@ -2,6 +2,7 @@ import type {
   IntentEvent,
   IntentResult,
   NexusClient,
+  SwapAndExecuteParams,
 } from "@avail-project/nexus-core";
 import { formatUnits, parseUnits } from "viem";
 import type {
@@ -40,6 +41,25 @@ function deriveSwapSources(ctx: ExecuteContext) {
   return sourceOptions
     .filter((s) => selectedSources.includes(s.id))
     .map((s) => ({ chainId: s.chainId, tokenAddress: s.tokenAddress }));
+}
+
+function deriveExactInSources(ctx: ExecuteContext) {
+  const sourceAmounts = ctx.sourceAmounts ?? {};
+  const sources = ctx.sourceOptions
+    .filter((source) => ctx.selectedSources.includes(source.id))
+    .filter((source) => Number(sourceAmounts[source.id] ?? "0") > 0)
+    .map((source) => {
+      if (source.decimals === undefined)
+        throw new Error(`Missing decimals for ${source.symbol} on ${source.chainName}`);
+      return {
+        chainId: source.chainId,
+        tokenAddress: source.tokenAddress,
+        amountRaw: parseUnits(sourceAmounts[source.id]!, source.decimals),
+      };
+    });
+  if (sources.length === 0)
+    throw new Error("Enter an amount for at least one source asset");
+  return sources;
 }
 
 /* ── Better Intent event → existing progress UI ──────────────────── */
@@ -253,26 +273,12 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
   ],
 
   execute: async (ctx): Promise<OperationResult> => {
-    const { client, chainId, tokenSymbol, sourceOptions, selectedSources } = ctx;
-    const sourceAmounts = ctx.sourceAmounts ?? {};
+    const { client, chainId, tokenSymbol } = ctx;
 
     if (!ctx.tokenAddress) throw new Error("Select a destination token");
     const selectedToken = await client.getToken({ chainId, tokenAddress: ctx.tokenAddress });
 
-    const sources = sourceOptions
-      .filter((s) => selectedSources.includes(s.id))
-      .filter((s) => Number(sourceAmounts[s.id] ?? "0") > 0)
-      .map((s) => {
-        if (s.decimals === undefined)
-          throw new Error(`Missing decimals for ${s.symbol} on ${s.chainName}`);
-        return {
-          chainId: s.chainId,
-          tokenAddress: s.tokenAddress,
-          amountRaw: parseUnits(sourceAmounts[s.id]!, s.decimals),
-        };
-      });
-    if (sources.length === 0)
-      throw new Error("Enter an amount for at least one source asset");
+    const sources = deriveExactInSources(ctx);
 
     const result = await client.swapWithExactIn(
       {
@@ -292,15 +298,124 @@ export const EXACT_IN_SWAP_TAB: TabConfig = {
   },
 };
 
+async function executeSwapAndDeposit(
+  ctx: ExecuteContext,
+  tradeType: "exactInput" | "exactOutput",
+): Promise<OperationResult> {
+  const { client, address, chainId, tokenSymbol } = ctx;
+  if (!address) throw new Error("Connect wallet first");
+  const selectedToken = getDepositTokenOptions(chainId).find(
+    (token) => token.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
+  );
+  if (!selectedToken?.tokenAddress)
+    throw new Error("Token cannot be used as swap destination");
+  const decimals = selectedToken.decimals;
+  if (decimals === undefined)
+    throw new Error("Missing destination token decimals");
+
+  const exactInput = tradeType === "exactInput";
+  let depositedAmountRaw = exactInput ? 0n : parseUnits(ctx.amount, decimals);
+  let receivedAmountRaw = 0n;
+  const deposit = buildDepositExecute({
+    chainId, symbol: tokenSymbol, amount: depositedAmountRaw, wallet: address,
+  });
+  const input: SwapAndExecuteParams = exactInput
+    ? {
+        tradeType: "exactInput",
+        toChainId: chainId,
+        toTokenAddress: selectedToken.tokenAddress,
+        sources: deriveExactInSources(ctx),
+        execute: deposit.execute,
+      }
+    : {
+        tradeType: "exactOutput",
+        toChainId: chainId,
+        toTokenAddress: selectedToken.tokenAddress,
+        toAmountRaw: depositedAmountRaw,
+        sources: deriveSwapSources(ctx),
+        execute: deposit.execute,
+      };
+  const executeStep = {
+    id: "destination-execute",
+    type: "execute_transaction",
+    chain: { id: chainId, name: chainName(client, chainId), logo: "" },
+    to: deposit.execute.to,
+  };
+
+  const result = await client.swapAndExecute(input, {
+    onEvent: createIntentEventHandler(ctx, "swapAndExecute"),
+    hooks: {
+      onIntent: (data) => {
+        ctx.setStatusMessage("Waiting for approval...");
+        return ctx.onSwapExecIntent(data);
+      },
+    },
+    beforeExecute: async (amounts) => {
+      depositedAmountRaw = amounts.executeAmountRaw;
+      receivedAmountRaw = amounts.receivedAmountRaw;
+      const updated = buildDepositExecute({
+        chainId, symbol: tokenSymbol, amount: depositedAmountRaw, wallet: address,
+      });
+      ctx.setStatusMessage("Executing deposit...");
+      ctx.handleProgressEvent?.({ type: "step", step: executeStep, state: "started" });
+      return { data: updated.execute.data, value: updated.execute.value };
+    },
+  });
+
+  ctx.setCompletedSteps((previous) => new Set(previous).add("TRANSACTION_CONFIRMED"));
+  ctx.setStatusMessage("");
+  ctx.handleProgressEvent?.({
+    type: "step", step: executeStep, state: "completed",
+    txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
+  });
+  const amount = formatUnits(depositedAmountRaw, decimals);
+  const hashes: Array<{ label: string; value: string; href?: string }> = [];
+  const route: SwapRouteStep[] = [];
+  const swapResult = result.swapResult;
+  if (swapResult) {
+    const intentResult = await buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
+    hashes.push(...intentResult.hashes);
+    if (intentResult.richResult?.kind === "swap") {
+      route.push(...intentResult.richResult.route.map((step) =>
+        exactInput && step.type === "destination"
+          ? { ...step, amount: formatUnits(receivedAmountRaw, decimals) }
+          : step,
+      ));
+    }
+  }
+  route.push({
+    type: "destination",
+    chainId,
+    chainName: chainName(client, chainId),
+    tokenSymbol: `${tokenSymbol} → ${getDepositProtocol(chainId)?.label ?? "deposit"}`,
+    amount,
+    txHash: result.execute.txHash,
+  });
+  hashes.push({
+    label: "Deposit tx", value: result.execute.txHash, href: result.execute.txExplorerUrl,
+  });
+
+  return {
+    hashes,
+    marketUrl: deposit.marketUrl,
+    richResult: {
+      kind: "swap",
+      route,
+      intentExplorerUrl: swapResult?.intentExplorerUrl || undefined,
+      summary: `${result.swapSkipped ? "Deposit" : "Swap & deposit"} ${amount} ${tokenSymbol} on ${chainName(client, chainId)}`,
+    },
+  };
+}
+
 export const SWAP_AND_EXECUTE_TAB: TabConfig = {
   id: "swap-and-execute",
   path: "/swap-and-execute",
-  navLabel: "Swap & Execute",
+  navLabel: "Exact Out Deposit",
   hero: {
     icon: "◎",
-    title: "Swap & Execute",
+    title: "Exact Out Swap & Execute",
     description:
-      "Swap into the destination asset, then deposit it into the chain's lending market. The deposit layer is config-driven — adding new protocols, chains, or tokens stays local.",
+      "Choose a deposit amount and fund it from your selected balances, then supply it to the destination lending market.",
     accentClass: "hero-card-accent",
     buttonLabel: "Swap & Deposit",
     buttonPendingLabel: "Running swap and deposit...",
@@ -324,99 +439,23 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
     { key: "execute", label: "Execute", doneWhen: "TRANSACTION_CONFIRMED" },
   ],
 
-  execute: async (ctx): Promise<OperationResult> => {
-    const { client, address, chainId, tokenSymbol, amount } = ctx;
-    if (!address) throw new Error("Connect wallet first");
-    const tokenOptions = getDepositTokenOptions(chainId);
-    const selectedToken = tokenOptions.find(
-      (t) => t.tokenAddress?.toLowerCase() === ctx.tokenAddress?.toLowerCase(),
-    );
-    if (!selectedToken)
-      throw new Error("Token cannot be used as swap destination");
+  execute: (ctx) => executeSwapAndDeposit(ctx, "exactOutput"),
+};
 
-    const toAmount = parseUnits(amount, selectedToken.decimals!);
-    const deposit = buildDepositExecute({
-      chainId,
-      symbol: tokenSymbol,
-      amount: toAmount,
-      wallet: address,
-    });
-    const fromSources = deriveSwapSources(ctx);
-
-    const executeStep = {
-      id: "destination-execute",
-      type: "execute_transaction",
-      chain: { id: chainId, name: chainName(client, chainId), logo: "" },
-      to: deposit.execute.to,
-    };
-
-    const result = await client.swapAndExecute(
-      {
-        toChainId: chainId,
-        toTokenAddress: selectedToken.tokenAddress!,
-        toAmountRaw: toAmount,
-        sources: fromSources,
-        execute: deposit.execute,
-      },
-      {
-        onEvent: createIntentEventHandler(ctx, "swapAndExecute"),
-        hooks: {
-          onIntent: (data) => {
-            ctx.setStatusMessage("Waiting for approval...");
-            return ctx.onSwapExecIntent(data);
-          },
-        },
-        beforeExecute: async () => {
-          ctx.setStatusMessage("Executing deposit...");
-          ctx.handleProgressEvent?.({ type: "step", step: executeStep, state: "started" });
-          return {};
-        },
-      },
-    );
-
-    ctx.setCompletedSteps((previous) => new Set(previous).add("TRANSACTION_CONFIRMED"));
-    ctx.setStatusMessage("");
-    ctx.handleProgressEvent?.({
-      type: "step", step: executeStep, state: "completed",
-      txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
-    });
-    const hashes: Array<{ label: string; value: string; href?: string }> = [];
-    const route: import("./types").SwapRouteStep[] = [];
-
-    const swapResult = result.swapResult;
-    if (swapResult) {
-      const intentResult = await buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
-      hashes.push(...intentResult.hashes);
-      if (intentResult.richResult?.kind === "swap") {
-        route.push(...intentResult.richResult.route);
-      }
-    }
-    route.push({
-      type: "destination",
-      chainId,
-      chainName: chainName(client, chainId),
-      tokenSymbol: `${tokenSymbol} → ${getDepositProtocol(chainId)?.label ?? "deposit"}`,
-      amount: amount,
-      txHash: result.execute.txHash,
-    });
-
-    hashes.push({
-      label: "Deposit tx",
-      value: result.execute.txHash,
-      href: result.execute.txExplorerUrl,
-    });
-
-    return {
-      hashes,
-      marketUrl: deposit.marketUrl,
-      richResult: {
-        kind: "swap",
-        route,
-        intentExplorerUrl: swapResult?.intentExplorerUrl || undefined,
-        summary: `Swap & deposit ${amount} ${tokenSymbol} on ${chainName(client, chainId)}`,
-      },
-    };
+export const EXACT_IN_SWAP_AND_EXECUTE_TAB: TabConfig = {
+  ...SWAP_AND_EXECUTE_TAB,
+  id: "swap-and-execute-exact-in",
+  path: "/swap-and-execute-exact-in",
+  navLabel: "Exact In Deposit",
+  hero: {
+    ...SWAP_AND_EXECUTE_TAB.hero,
+    title: "Exact In Swap & Execute",
+    description:
+      "Choose source amounts and deposit the tokens received. Selected tokens already on the destination are added to your deposit.",
   },
+  amountLabel: "Deposit",
+  amountMode: "per-source",
+  execute: (ctx) => executeSwapAndDeposit(ctx, "exactInput"),
 };
 
 /* ── Tab collections by network ──────────────────────────────────── */
@@ -425,6 +464,7 @@ export const MAINNET_TABS: TabConfig[] = [
   EXACT_OUT_SWAP_TAB,
   EXACT_IN_SWAP_TAB,
   SWAP_AND_EXECUTE_TAB,
+  EXACT_IN_SWAP_AND_EXECUTE_TAB,
 ];
 
 export function getTabsForNetwork(_network: NetworkMode): TabConfig[] {

@@ -231,7 +231,8 @@ export function useOperationForm({
     onMutate: () => ({ client }),
     mutationFn: async () => {
       if (!ready || !client) throw new Error("SDK not ready");
-      if (!address && !isPerSource) throw new Error("Connect wallet first");
+      if (!address && (config.intentType !== "swap" || !isPerSource))
+        throw new Error("Connect wallet first");
       if (!currentTokenOption) throw new Error("Select a destination token");
       if (isPerSource) {
         if (!amountValid) throw new Error("Enter an amount for at least one asset");
@@ -260,7 +261,8 @@ export function useOperationForm({
       progress.openModal({
         sourceSymbols,
         amount: isPerSource
-          ? sourcesTotalFiat > 0 ? `$${formatAmount(sourcesTotalFiat, 2)}` : "Quote preview"
+          ? sourcesTotalFiat > 0 ? `$${formatAmount(sourcesTotalFiat, 2)}`
+            : config.intentType === "swapAndExecute" ? "Pending" : "Quote preview"
           : amount,
         destTokenSymbol: tokenSymbol,
         destTokenLogo: getTokenLogoUrl(tokenSymbol, currentTokenOption?.tokenAddress, chainId),

@@ -23,7 +23,8 @@ export type TokenBalance = {
 export type TabId =
   | "swap-exact-out"
   | "swap-exact-in"
-  | "swap-and-execute";
+  | "swap-and-execute"
+  | "swap-and-execute-exact-in";
 
 export type ChainOption = { id: number; name: string };
 

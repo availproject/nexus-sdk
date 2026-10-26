@@ -41,7 +41,7 @@ type OperationPageProps = {
 export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
   const form = useOperationForm({ config, ...sdkProps });
   const isPerSource = config.amountMode === "per-source";
-  const preview = isPerSource && !sdkProps.address;
+  const preview = config.intentType === "swap" && isPerSource && !sdkProps.address;
   const wallet = useWalletModal();
 
   const handleDismissProgress = useCallback(() => {
@@ -135,7 +135,9 @@ export function OperationPage({ config, ...sdkProps }: OperationPageProps) {
                   </div>
                   <div className="receive-hint">
                     <span className="receive-output-note">
-                      Output amount &amp; fees shown at review
+                      {isDepositTab
+                        ? "Actual deposit amount is determined after swaps"
+                        : "Output amount & fees shown at review"}
                     </span>
                   </div>
                 </div>
