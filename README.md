@@ -256,9 +256,13 @@ Receipt controls are `receiptTimeout` (milliseconds, default 300000) and `requir
 
 ## Fund and execute
 
+`swapAndExecute` defaults to `tradeType: 'exactOutput'`: specify `toAmountRaw`, and the SDK funds
+the destination shortfall or skips the swap when the selected balances already cover execution.
+
 ```ts
 const composed = await client.swapAndExecute(
   {
+    tradeType: 'exactOutput', // Optional; this is the default.
     toChainId: destination.chainId,
     toTokenAddress: destination.tokenAddress,
     toAmountRaw: amountRaw,
@@ -287,10 +291,76 @@ execution gas and value, funds the destination shortfall, then executes after fu
 The composite hook receives `intent`, not `quote`; it runs even if funding is already sufficient.
 `intent.quote` exists only when `intent.swapRequired` is true.
 
+For exact input, set `tradeType: 'exactInput'`, supply a positive `amountRaw` on every source, and
+omit `toAmountRaw`. Sources matching the destination chain and token stay in the wallet and are
+reserved for execution. Other sources enter the swap with their fixed amounts and must share one
+provider with the destination. If every source is already the destination token, the swap is skipped;
+ERC-20 execution still needs native gas funds on that chain.
+
+```ts
+declare function buildDepositData(amountRaw: bigint): NonNullable<ExecuteParams['data']>;
+
+await client.swapAndExecute(
+  {
+    tradeType: 'exactInput',
+    sources: [{ ...source, amountRaw: parseUnits('5', sourceToken.decimals) }],
+    toChainId: destination.chainId,
+    toTokenAddress: destination.tokenAddress,
+    execute: {
+      to: contract,
+      data: calldata,
+      gas: 350_000n,
+      tokenApproval: {
+        toTokenAddress: destination.tokenAddress,
+        amount: 0n, // The SDK sets the final approval amount after funding.
+        spender: contract,
+      },
+    },
+  },
+  {
+    hooks: {
+      onIntent({ intent, allow }) {
+        console.log(intent.executeRequirement.token.amountRaw, intent.quote?.output);
+        allow(); // In an app, call after the user confirms.
+      },
+    },
+    beforeExecute: async ({ receivedAmountRaw, executeAmountRaw }) => {
+      console.log('Actual swap proceeds', receivedAmountRaw);
+      return { data: buildDepositData(executeAmountRaw) };
+    },
+  },
+);
+```
+
+The review hook shows an estimate based on the quote's minimum output plus selected local tokens.
+After review, the SDK reads the destination's on-chain balance immediately before funding and
+again after fulfillment. `beforeExecute` receives `BeforeExecuteContext`:
+
+- `receivedAmountRaw`: the balance difference across funding, or zero when the swap was skipped.
+- `executeAmountRaw`: for exact input, actual proceeds plus selected local tokens, after native
+  execution reserves; for exact output, the requested `toAmountRaw`.
+
+For example, a wallet starting with 10 destination USDT and selecting 5 of it for execution keeps
+those 5 locally. If funding raises the balance to 140 USDT, the hook receives 130 USDT of proceeds
+and 135 USDT for execution, leaving the unselected 5 untouched.
+
+Balance differences include unrelated transfers during funding. Missing selected local funds,
+failed balance reads, non-positive swap proceeds, or insufficient native execution reserves stop
+execution. Native output reserves execute value and gas; non-native output requests a gas drop
+when needed. When `tokenApproval.toTokenAddress` matches the exact-input destination, the SDK
+reserves approval gas, then rechecks allowance and builds approval for `executeAmountRaw` after
+the hook returns. The developer supplies the updated calldata; approval construction stays in the SDK.
+When every input is local, the amount is already known, so sufficient allowance avoids reserving
+unneeded approval gas.
+
 Composite `refresh(sources?)` returns an updated intent with current fee estimates and a replacement
 funding quote when needed. It reuses the original balance snapshot; start a new operation to reread
-balances. Omitted sources retain the selection; `[]` clears it. Top-level `beforeExecute` can return
-`{ data?, value?, gas? }` after funding, but overrides do not recalculate funding.
+balances. Omitted sources retain the selection. For exact output, `[]` clears it; exact-input
+replacement sources must be non-empty and include token addresses and positive raw amounts.
+Top-level `beforeExecute` can return `{ data?, value?, gas? }` after funding, but overrides do not
+recalculate funding.
+Use `executeAmountRaw` to prepare amount-sensitive calldata through this hook. Callbacks that ignore
+the context remain supported.
 Intent events cover funding; the composite promise covers the subsequent contract call too.
 
 ## History and errors

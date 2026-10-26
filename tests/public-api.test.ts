@@ -82,6 +82,34 @@ describe('public api exports', () => {
     expectTypeOf<rootModule.ExecuteParams['gas']>().toEqualTypeOf<bigint | undefined>();
   });
 
+  it('requires source amounts for exact-input composite swaps and defaults to exact output', () => {
+    type Params = Parameters<NexusClient['swapAndExecute']>[0];
+    type ExactInput = Extract<Params, { tradeType: 'exactInput' }>;
+    type ExactOutput = Exclude<Params, ExactInput>;
+    expectTypeOf<Params>().toEqualTypeOf<rootModule.SwapAndExecuteParams>();
+    expectTypeOf<ExactInput['sources']>().toEqualTypeOf<rootModule.SwapExactInParams['sources']>();
+    expectTypeOf<ExactInput['toAmountRaw']>().toEqualTypeOf<undefined>();
+    expectTypeOf<ExactOutput['tradeType']>().toEqualTypeOf<'exactOutput' | undefined>();
+    expectTypeOf<ExactOutput['toAmountRaw']>().toEqualTypeOf<bigint>();
+    expectTypeOf<ExactOutput['sources']>().toEqualTypeOf<rootModule.SwapExactOutParams['sources']>();
+    expectTypeOf<Omit<ExactInput, 'sources'>>().not.toExtend<Params>();
+    expectTypeOf<Omit<ExactOutput, 'toAmountRaw'>>().not.toExtend<Params>();
+  });
+
+  it('passes actual proceeds and the execution amount to the before-execute hook', () => {
+    type Options = NonNullable<Parameters<NexusClient['swapAndExecute']>[1]>;
+    type BeforeExecute = NonNullable<Options['beforeExecute']>;
+    expectTypeOf<Parameters<BeforeExecute>>().toEqualTypeOf<[rootModule.BeforeExecuteContext]>();
+    expectTypeOf<rootModule.BeforeExecuteContext>().toEqualTypeOf<{
+      receivedAmountRaw: bigint;
+      executeAmountRaw: bigint;
+    }>();
+    expectTypeOf<Awaited<ReturnType<BeforeExecute>>>().toEqualTypeOf<{
+      value?: bigint; data?: `0x${string}`; gas?: bigint;
+    }>();
+    expectTypeOf<() => Promise<{}>>().toExtend<BeforeExecute>();
+  });
+
   it('exposes getBalances with getBalancesForSwap as an alias', () => {
     expectTypeOf<NexusClient['getBalances']>().toEqualTypeOf<() => Promise<IntentBalance[]>>();
     expectTypeOf<NexusClient['getBalancesForSwap']>().toEqualTypeOf<NexusClient['getBalances']>();

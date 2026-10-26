@@ -18,6 +18,7 @@ export const IntentStatus = DomainIntentStatus;
 export type IntentStatus = import('./intent/types').IntentLifecycleStatus;
 
 export type {
+  BeforeExecuteContext,
   Chain,
   ChainListType,
   ChainMetadata,
