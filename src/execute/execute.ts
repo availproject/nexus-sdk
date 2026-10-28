@@ -24,7 +24,7 @@ import {
   sendExecuteTransactions,
 } from './runtime';
 
-const executeParamsSchema = z.object({
+export const executeParamsSchema = z.object({
   toChainId: positiveInt,
   to: addressString,
   value: nonNegativeBigint.optional(),

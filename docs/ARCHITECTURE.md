@@ -267,7 +267,7 @@ later contract call needs. `src/client/swap-and-execute.ts` owns this flow; `src
 wires client state, catalog lookups, shared quote builders, and the serialized wallet runtime into it.
 
 ```text
-validate required execute.gas
+validate composite input, including required execute.gas
   -> prepare calls and approvals + fetch a balance snapshot
   -> price supplied execute gas and estimated approval gas
   -> calculate destination token/native shortfall
@@ -302,6 +302,10 @@ not attribute receipts to an intent. A missing local allocation, failed read, no
 delivery, or insufficient native reserve prevents destination execution.
 
 Composite operations do not build routes locally.
+
+Private Zod schemas in `src/client/swap-and-execute.ts` validate the trade mode, destination,
+sources, and execution fields before preparing funding. Execution validation reuses the schema
+from `src/execute/execute.ts`; quote refreshes reuse the same mode-specific source schemas.
 
 `execute.gas` supplies the raw estimate; the destination call is never estimated through RPC before
 funding. Approval gas is estimated separately when the allowance is insufficient, and reserved for

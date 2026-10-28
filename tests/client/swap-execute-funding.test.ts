@@ -483,7 +483,7 @@ describe('swap execution trade modes', () => {
     { sources: undefined, message: 'exact-input swap requires sources' },
     { sources: [], message: 'exact-input swap requires sources' },
     { sources: [{ chainId: 11155111, tokenAddress: TOKEN }], message: 'requires amountRaw on every source' },
-    { sources: [{ chainId: 11155111, amountRaw: 2000n }], message: 'requires tokenAddress on every source' },
+    { sources: [{ chainId: 11155111, amountRaw: 2000n }], message: 'sources.0.tokenAddress: invalid address' },
     { sources: [{ chainId: 11155111, tokenAddress: TOKEN, amountRaw: 0n }], message: 'source amountRaw must be greater than zero' },
     { sources: [{ chainId: 11155111, tokenAddress: TOKEN, amountRaw: -1n }], message: 'source amountRaw must be greater than zero' },
     { sources: [{ chainId: 11155111, tokenAddress: TOKEN, amountRaw: 2000 }], message: 'source amountRaw must be a bigint' },
@@ -498,6 +498,7 @@ describe('swap execution trade modes', () => {
       code: 'validation/invalid_input', message: expect.stringContaining(message),
     });
     expect(ctx.getIntentQuote).not.toHaveBeenCalled();
+    expect(ctx.getIntentBalances).not.toHaveBeenCalled();
     expect(ctx.submitIntent).not.toHaveBeenCalled();
     expect(ctx.send).not.toHaveBeenCalled();
   });
