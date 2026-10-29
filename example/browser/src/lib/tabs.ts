@@ -101,7 +101,7 @@ function createIntentEventHandler(
         next.add("SWAP_COMPLETE");
         return next;
       });
-      ctx.setStatusMessage(operation.endsWith("Execute") ? "Executing deposit..." : "");
+      ctx.setStatusMessage(operation === "swapAndExecute" ? "Deposit fulfilled" : "");
     } else if (event.status === "expired") {
       ctx.setStatusMessage("Intent expired");
     }
@@ -314,8 +314,7 @@ async function executeSwapAndDeposit(
     throw new Error("Missing destination token decimals");
 
   const exactInput = tradeType === "exactInput";
-  let depositedAmountRaw = exactInput ? 0n : parseUnits(ctx.amount, decimals);
-  let receivedAmountRaw = 0n;
+  const depositedAmountRaw = exactInput ? 0n : parseUnits(ctx.amount, decimals);
   const deposit = buildDepositExecute({
     chainId, symbol: tokenSymbol, amount: depositedAmountRaw, wallet: address,
   });
@@ -335,14 +334,8 @@ async function executeSwapAndDeposit(
         sources: deriveSwapSources(ctx),
         execute: deposit.execute,
       };
-  const executeStep = {
-    id: "destination-execute",
-    type: "execute_transaction",
-    chain: { id: chainId, name: chainName(client, chainId), logo: "" },
-    to: deposit.execute.to,
-  };
-
   const result = await client.swapAndExecute(input, {
+    useProviderDestinationExecution: true,
     onEvent: createIntentEventHandler(ctx, "swapAndExecute"),
     hooks: {
       onIntent: (data) => {
@@ -351,24 +344,16 @@ async function executeSwapAndDeposit(
       },
     },
     beforeExecute: async (amounts) => {
-      depositedAmountRaw = amounts.executeAmountRaw;
-      receivedAmountRaw = amounts.receivedAmountRaw;
       const updated = buildDepositExecute({
-        chainId, symbol: tokenSymbol, amount: depositedAmountRaw, wallet: address,
+        chainId, symbol: tokenSymbol, amount: amounts.executeAmountRaw, wallet: address,
       });
-      ctx.setStatusMessage("Executing deposit...");
-      ctx.handleProgressEvent?.({ type: "step", step: executeStep, state: "started" });
       return { data: updated.execute.data, value: updated.execute.value };
     },
   });
 
   ctx.setCompletedSteps((previous) => new Set(previous).add("TRANSACTION_CONFIRMED"));
   ctx.setStatusMessage("");
-  ctx.handleProgressEvent?.({
-    type: "step", step: executeStep, state: "completed",
-    txHash: result.execute.txHash, explorerUrl: result.execute.txExplorerUrl,
-  });
-  const amount = formatUnits(depositedAmountRaw, decimals);
+  const amount = formatUnits(result.executeAmountRaw, decimals);
   const hashes: Array<{ label: string; value: string; href?: string }> = [];
   const route: SwapRouteStep[] = [];
   const swapResult = result.swapResult;
@@ -376,11 +361,7 @@ async function executeSwapAndDeposit(
     const intentResult = await buildSwapResult(client, swapResult, chainId, tokenSymbol, amount);
     hashes.push(...intentResult.hashes);
     if (intentResult.richResult?.kind === "swap") {
-      route.push(...intentResult.richResult.route.map((step) =>
-        exactInput && step.type === "destination"
-          ? { ...step, amount: formatUnits(receivedAmountRaw, decimals) }
-          : step,
-      ));
+      route.push(...intentResult.richResult.route.filter((step) => step.type !== "destination"));
     }
   }
   route.push({
@@ -389,10 +370,7 @@ async function executeSwapAndDeposit(
     chainName: chainName(client, chainId),
     tokenSymbol: `${tokenSymbol} → ${getDepositProtocol(chainId)?.label ?? "deposit"}`,
     amount,
-    txHash: result.execute.txHash,
-  });
-  hashes.push({
-    label: "Deposit tx", value: result.execute.txHash, href: result.execute.txExplorerUrl,
+    explorerUrl: swapResult?.intentExplorerUrl,
   });
 
   return {
@@ -415,7 +393,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
     icon: "◎",
     title: "Exact Out Swap & Execute",
     description:
-      "Choose a deposit amount and fund it from your selected balances, then supply it to the destination lending market.",
+      "Choose a deposit amount. Relay swaps your selected funds and supplies the tokens to the lending market on your behalf. The route must select one funding leg.",
     accentClass: "hero-card-accent",
     buttonLabel: "Swap & Deposit",
     buttonPendingLabel: "Running swap and deposit...",
@@ -436,7 +414,7 @@ export const SWAP_AND_EXECUTE_TAB: TabConfig = {
   phases: [
     { key: "approve", label: "Approve", doneWhen: "INTENT_APPROVED" },
     { key: "swap", label: "Swap", doneWhen: "SWAP_COMPLETE" },
-    { key: "execute", label: "Execute", doneWhen: "TRANSACTION_CONFIRMED" },
+    { key: "execute", label: "Deposit", doneWhen: "TRANSACTION_CONFIRMED" },
   ],
 
   execute: (ctx) => executeSwapAndDeposit(ctx, "exactOutput"),
@@ -451,7 +429,7 @@ export const EXACT_IN_SWAP_AND_EXECUTE_TAB: TabConfig = {
     ...SWAP_AND_EXECUTE_TAB.hero,
     title: "Exact In Swap & Execute",
     description:
-      "Choose source amounts and deposit the tokens received. Selected tokens already on the destination are added to your deposit.",
+      "Choose source amounts. Relay deposits a fixed amount below the guaranteed minimum, reserving 1% capped at $1. Remaining output goes to your wallet. The route must select one funding leg.",
   },
   amountLabel: "Deposit",
   amountMode: "per-source",
