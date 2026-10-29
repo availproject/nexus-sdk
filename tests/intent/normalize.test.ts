@@ -14,6 +14,22 @@ const QUOTE_ID = `0x${'11'.repeat(32)}`;
 const SIGNATURE_MESSAGE = `0x${'22'.repeat(32)}`;
 
 describe('Better Intent response normalization', () => {
+  it.each([true, false])('preserves the destination-call capability (%s)', (supportsDestinationCalls) => {
+    expect(normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), supportsDestinationCalls,
+    }).quote.supportsDestinationCalls).toBe(supportsDestinationCalls);
+  });
+
+  it('defaults missing destination-call support to false for older middleware', () => {
+    expect(normalizeIntentQuote(sponsoredQuoteResponse()).quote.supportsDestinationCalls).toBe(false);
+  });
+
+  it('rejects a malformed destination-call capability', () => {
+    expect(() => normalizeIntentQuote({
+      ...sponsoredQuoteResponse(), supportsDestinationCalls: 'true',
+    })).toThrow(/quote response/i);
+  });
+
   it.each(['nexus-v2', 'mayan', 'relay'] as const)(
     'preserves the complete %s quote proof separately from public fees',
     (provider) => {

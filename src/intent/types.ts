@@ -250,6 +250,8 @@ export type IntentQuote = {
   id: Hex;
   provider: IntentProvider;
   tradeType: IntentTradeType;
+  /** Whether the selected route supports destination calls; false means requested calls were omitted. */
+  supportsDestinationCalls: boolean;
   /** Middleware's source-balance check; does not imply a connected wallet or completed approvals. */
   isExecutable: boolean;
   executionWarnings: Array<{
@@ -374,6 +376,7 @@ export type IntentQuoteRequest = {
   preferredProviders?: IntentProvider[];
   slippageBps?: number | 'auto';
   gasDrop?: { amount: string };
+  destinationCalls?: Array<{ to: Hex; data: Hex; value: string }>;
 };
 
 export type IntentSubmitRequest = {
@@ -506,6 +509,7 @@ export type FundingAmount = {
 };
 
 export type SwapAndExecuteIntent = {
+  executionMode: 'wallet' | 'provider';
   executeRequirement: {
     chain: { id: number; name: string; logo?: string };
     to: Hex;
@@ -540,11 +544,19 @@ export type SwapAndExecuteHookData = {
   refresh: (sources?: IntentSource[]) => Promise<SwapAndExecuteIntent>;
 };
 
-export type SwapAndExecuteIntentResult = Pick<ExecuteResult, 'approval' | 'execute'> &
-  (
-    | { swapSkipped: true; swapResult?: undefined }
-    | { swapSkipped: false; swapResult: IntentResult }
-  );
+export type SwapAndExecuteIntentResult = { executeAmountRaw: bigint } & (
+  | {
+      executionMode: 'provider';
+      swapSkipped: false;
+      swapResult: IntentResult;
+      approval?: undefined;
+      execute?: undefined;
+    }
+  | (Pick<ExecuteResult, 'approval' | 'execute'> & { executionMode: 'wallet' } & (
+        | { swapSkipped: true; swapResult?: undefined }
+        | { swapSkipped: false; swapResult: IntentResult }
+      ))
+);
 
 export type IntentAndExecuteSimulationResult = {
   intentQuote: IntentQuote | null;

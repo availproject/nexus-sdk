@@ -84,9 +84,9 @@ export type ExecuteSimulation = {
 };
 
 export type BeforeExecuteContext = {
-  /** Net destination balance change measured across fulfillment, in raw token units. */
+  /** Wallet: measured proceeds. Provider: the preview's guaranteed output before execution. */
   receivedAmountRaw: bigint;
-  /** Funds allocated to this execution, including selected destination-token inputs. */
+  /** Wallet: actual allocation including local tokens. Provider: fixed budget encoded before review. */
   executeAmountRaw: bigint;
 };
 

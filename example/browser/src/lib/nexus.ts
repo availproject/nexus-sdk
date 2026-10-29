@@ -76,6 +76,7 @@ export type ShortfallViewModel = {
 
 export type SwapAndExecuteIntentViewModel = {
   kind: "swapAndExecute";
+  executionMode: SwapAndExecuteIntent["executionMode"];
   executeRequirement: ExecuteRequirementViewModel;
   available: AvailableViewModel;
   swapRequired: boolean;
@@ -160,6 +161,7 @@ export async function mapCompositeIntent(
   });
   return {
     kind: "swapAndExecute",
+    executionMode: intent.executionMode,
     executeRequirement: {
       chainName: requirement.chain.name,
       chainLogo: requirement.chain.logo,
