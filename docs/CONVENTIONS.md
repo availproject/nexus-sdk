@@ -168,20 +168,35 @@ Retry receipt lookup by known hash; never treat an RPC timeout as proof that res
 
 Composite methods may calculate only destination funding requirements:
 
-- output-token and native balances from the initial snapshot, filtered by selected sources;
+- output-token and native balances from the initial snapshot: exact output filters by selected
+  sources; exact input retains selected destination tokens locally, preserves unselected tokens,
+  and accounts for other destination-chain inputs consumed by the swap;
 - execute value;
 - execute gas cost from the required caller-supplied raw estimate, current fee prices, and chain buffers;
 - resulting token and gas shortfalls.
 
 They must not reconstruct an intent route. Execute only after the funding intent is fulfilled.
 Do not estimate the destination call before funding; balances or approvals may be missing.
-Estimate required approval gas separately, using 70,000 raw gas units only as a fallback.
+Estimate required approval gas separately, using 70,000 raw gas units only as a fallback. Reserve
+approval gas for exact-input destination-token approvals even if the estimated amount fits the allowance.
 Refresh fee prices and L1 fees from the original calls and gas estimates, then recalculate
-shortfalls and replace the funding quote. Reuse the initial balance snapshot and allowance decision.
+shortfalls and replace the funding quote. Reuse the initial balance snapshot and allowance decision
+during review; exact-input destination approvals are rechecked for the actual amount after funding.
 Commit refreshed sources, quote, and execution fees together only after successful preparation.
 Composite hooks must represent fully funded execution as well as funding quotes.
 
-If only gas is missing for a non-native output token, request one raw output unit plus the gas drop.
+Composite orchestration lives in `src/client/swap-and-execute.ts`; `base.ts` supplies client state
+and shared request and wallet helpers. Exact output is the default and funds only shortfalls.
+Exact input swaps only non-local source amounts. Review uses the quoted minimum plus selected local
+tokens; execution uses the destination balance difference plus that local amount. Read raw balances
+through RPC immediately before funding and after fulfillment, and expose actual proceeds and the
+execution amount to `beforeExecute`. Balance differences currently include unrelated transfers.
+Reserve execution value and gas from native funds and reject insufficient amounts. Set matching
+destination-token approvals to the actual execution amount internally, recheck allowance, and retain
+reserved approval gas. Refresh retains the trade type and validates replacement exact-input amounts.
+
+If only gas is missing for a non-native exact-output token, request one raw output unit plus the
+gas drop.
 
 ## Errors
 

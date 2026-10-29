@@ -24,7 +24,7 @@ import {
   sendExecuteTransactions,
 } from './runtime';
 
-const executeParamsSchema = z.object({
+export const executeParamsSchema = z.object({
   toChainId: positiveInt,
   to: addressString,
   value: nonNegativeBigint.optional(),
@@ -64,21 +64,28 @@ const resolveTokenApproval = (params: ExecuteParams, deps: ExecuteDeps) =>
 export const execute = async (
   params: ExecuteParams,
   deps: ExecuteDeps,
-  prepared?: Awaited<ReturnType<typeof priceExecuteFunding>>
+  prepared?: Awaited<ReturnType<typeof priceExecuteFunding>>,
+  refreshApproval = false
 ): Promise<ExecuteResult> => {
   const parsed = parseExecuteParams(params);
-  const { dstPublicClient, dstChain, approvalTx, approvalContext, tx } =
-    prepared ??
-    (await createExecuteTxContext({
-      chainList: deps.chainList,
-      ownerAddress: deps.evm.address,
-      toChainId: parsed.toChainId,
-      to: parsed.to,
-      value: parsed.value,
-      data: parsed.data,
-      gas: parsed.gas,
-      tokenApproval: resolveTokenApproval(parsed, deps),
-    }));
+  const context =
+    prepared && !refreshApproval
+      ? prepared
+      : await createExecuteTxContext({
+          chainList: deps.chainList,
+          ownerAddress: deps.evm.address,
+          toChainId: parsed.toChainId,
+          to: parsed.to,
+          value: parsed.value,
+          data: parsed.data,
+          gas: parsed.gas,
+          tokenApproval: resolveTokenApproval(parsed, deps),
+        });
+  const { dstPublicClient, dstChain, approvalContext, tx } = context;
+  const approvalTx =
+    context.approvalTx && prepared?.approvalTx
+      ? { ...context.approvalTx, gas: prepared.approvalTx.gas }
+      : context.approvalTx;
   const executePlan = createExecutePlanContext({
     chain: dstChain,
     tx,
@@ -129,14 +136,21 @@ export const execute = async (
 
 export const prepareExecuteFunding = async (
   params: ExecuteParams & { gas: bigint },
-  deps: ExecuteDeps
+  deps: ExecuteDeps,
+  reserveApproval = false
 ) => {
   const parsed = parseInput(executeParamsSchema.required({ gas: true }), params);
+  const tokenApproval = resolveTokenApproval(parsed, deps);
+  // Estimate a positive approval while the final exact-input amount is still unknown.
   const context = await createExecuteTxContext({
     ...parsed,
     chainList: deps.chainList,
     ownerAddress: deps.evm.address,
-    tokenApproval: resolveTokenApproval(parsed, deps),
+    tokenApproval:
+      reserveApproval && tokenApproval?.amount === 0n
+        ? { ...tokenApproval, amount: 1n }
+        : tokenApproval,
+    forceApproval: reserveApproval,
   });
   const { approvalTx, dstPublicClient, tx } = context;
   const approvalGas = approvalTx

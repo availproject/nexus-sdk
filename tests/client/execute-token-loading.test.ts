@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { createNexusClient, type ExecuteParams } from '../../src';
+import { createNexusClient, type ExecuteParams, type SwapAndExecuteParams } from '../../src';
 import * as executeFlow from '../../src/execute/execute';
 import { testChains } from '../fixtures/chains';
 import { makeTokenFetcher } from '../helpers/catalog';
@@ -26,6 +26,40 @@ const setup = async () => {
   return { client, chains, getIntentTokens, getIntentBalances };
 };
 
+it.each([undefined, null, {}, { execute: undefined }, { execute: null }])(
+  'rejects malformed swap execution input %s before preparing funding', async (input) => {
+    const { client, getIntentTokens, getIntentBalances } = await setup();
+    const prepare = vi.spyOn(executeFlow, 'prepareExecuteFunding');
+    try {
+      await expect(client.swapAndExecute(input as unknown as SwapAndExecuteParams))
+        .rejects.toMatchObject({ code: 'validation/invalid_input' });
+      expect(getIntentTokens).not.toHaveBeenCalled();
+      expect(getIntentBalances).not.toHaveBeenCalled();
+      expect(prepare).not.toHaveBeenCalled();
+    } finally { client.destroy(); }
+  }
+);
+
+it.each([
+  { to: '0x1234' },
+  { value: -1n },
+  { data: '0xzz' },
+  { gasPrice: 'fast' },
+  { tokenApproval: { toTokenAddress: testChains[0].tokens[1].address, amount: -1n, spender: ACCOUNT } },
+])('rejects invalid destination execution fields %s before preparing funding', async (overrides) => {
+  const { client, getIntentTokens, getIntentBalances } = await setup();
+  const prepare = vi.spyOn(executeFlow, 'prepareExecuteFunding');
+  try {
+    await expect(client.swapAndExecute({
+      toChainId: 1, toTokenAddress: testChains[0].tokens[1].address, toAmountRaw: 1n,
+      execute: { to: ACCOUNT, gas: 100_000n, ...overrides },
+    } as unknown as SwapAndExecuteParams)).rejects.toMatchObject({ code: 'validation/invalid_input' });
+    expect(getIntentTokens).not.toHaveBeenCalled();
+    expect(getIntentBalances).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  } finally { client.destroy(); }
+});
+
 it.each([undefined, null, 0n, -1n, 100_000, '100000'])('rejects invalid swap execution gas %s before funding', async (gas) => {
   const { client, getIntentBalances } = await setup();
   const prepare = vi.spyOn(executeFlow, 'prepareExecuteFunding');
@@ -37,7 +71,7 @@ it.each([undefined, null, 0n, -1n, 100_000, '100000'])('rejects invalid swap exe
       execute: { to: ACCOUNT, gas: gas as bigint },
     })).rejects.toMatchObject({
       code: 'validation/invalid_input',
-      message: expect.stringContaining('execute.gas must be a positive bigint'),
+      message: expect.stringContaining('execute.gas: must be a positive bigint'),
     });
     expect(getIntentBalances).not.toHaveBeenCalled();
     expect(prepare).not.toHaveBeenCalled();

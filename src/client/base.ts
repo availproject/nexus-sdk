@@ -1,6 +1,5 @@
 import { bytesToHex, createWalletClient, custom, type Hex, type WalletClient } from 'viem';
 import type { AnalyticsManager } from '../analytics/AnalyticsManager';
-import { NexusAnalyticsEvents } from '../analytics/events';
 import type { DevTimingConfig } from '../analytics/types';
 import { getWalletType } from '../analytics/utils';
 import type {
@@ -11,56 +10,39 @@ import type {
   NexusNetwork,
   OnEventParam,
 } from '../domain';
-import { LOG_LEVEL, setLogLevel, ZERO_ADDRESS } from '../domain';
+import { LOG_LEVEL, setLogLevel } from '../domain';
 import { Errors, formatUnknownError } from '../domain/errors';
 import { addressString, parseInput } from '../domain/validation';
-import {
-  execute as flowExecute,
-  simulateExecute as flowSimulateExecute,
-  prepareExecuteFunding,
-  priceExecuteFunding,
-} from '../execute/execute';
+import { execute as flowExecute, simulateExecute as flowSimulateExecute } from '../execute/execute';
 import {
   createIntentCatalog,
   type IntentCatalog,
   intentNetworkEnabled,
   mergeSupportedChains,
 } from '../intent/catalog';
-import {
-  calculateIntentFunding,
-  filterFundingBalances,
-  formatFundingAmount,
-} from '../intent/funding';
 import type { MiddlewareClient } from '../intent/middleware';
 import { createMiddlewareClient } from '../intent/middleware';
-import { assertIntentQuoteFresh, runIntent } from '../intent/orchestrator';
-import type {
-  SwapAndExecuteParams,
-  SwapExactInParams,
-  SwapExactOutParams,
-} from '../intent/swap-types';
+import { runIntent } from '../intent/orchestrator';
+import type { SwapExactInParams, SwapExactOutParams } from '../intent/swap-types';
 import type { IntentReporting } from '../intent/telemetry';
 import type {
   IntentChainMetadata,
-  IntentEvent,
   IntentHistoryResult,
   IntentQuoteRequest,
   IntentResult,
   IntentSource,
   IntentTokenQuery,
-  SwapAndExecuteIntent,
-  SwapAndExecuteIntentResult,
   TokenRef,
 } from '../intent/types';
 import { createIntentWallet } from '../intent/wallet';
 import { isNativeAddress } from '../services/addresses';
 import { createChainList } from '../services/chain-list';
 import { getNetworkConfig } from '../services/network-config';
-import { runNonBlocking } from '../services/non-blocking';
 import { equalFold } from '../services/strings';
 import { setLoggerProvider } from '../services/telemetry';
 import { trackWalletConnect } from './operation-boundary';
-import type { SwapAndExecuteOptions, SwapOperationOptions } from './types';
+import { createSwapAndExecute } from './swap-and-execute';
+import type { SwapOperationOptions } from './types';
 
 const DEFAULT_INTENTS_PAGE_SIZE = 20;
 const DEFAULT_SLIPPAGE_BPS = 50;
@@ -76,6 +58,7 @@ type BaseState = {
 
 const chainRef = (chainId: number) => `EVM_${chainId}`;
 const positiveAmount = (amount: bigint, label: string) => {
+  if (typeof amount !== 'bigint') throw Errors.invalidInput(`${label} must be a bigint`);
   if (amount <= 0n) throw Errors.invalidInput(`${label} must be greater than zero`);
 };
 const nonNegativeAmount = (amount: bigint | undefined, label: string) => {
@@ -366,238 +349,16 @@ export const createBase = (config: {
     });
   };
 
-  const swapAndExecute = async (
-    input: SwapAndExecuteParams,
-    options?: SwapAndExecuteOptions,
-    reporting?: IntentReporting
-  ): Promise<SwapAndExecuteIntentResult> => {
-    if (typeof input.execute.gas !== 'bigint' || input.execute.gas <= 0n) {
-      throw Errors.invalidInput('execute.gas must be a positive bigint');
-    }
-    positiveAmount(input.toAmountRaw, 'toAmountRaw');
-    const evm = getEvm();
-    const executeParams = { ...input.execute, toChainId: input.toChainId };
-    const deps = {
-      chainList: getChainList(),
-      evm: { walletClient: evm.client, address: evm.address },
-      timing: state.analytics?.scopedTimingHooks(reporting?.attemptId),
-    };
-    await loadExecuteToken(executeParams);
-    const [prepared, snapshot, token] = await Promise.all([
-      prepareExecuteFunding(executeParams, deps),
-      state.middlewareClient.getIntentBalances(evm.address, {
-        refresh: true,
-        ...(reporting ? { attemptId: reporting.attemptId } : {}),
-      }),
-      getIntentCatalog().getToken(input.toChainId, input.toTokenAddress),
-    ]);
-    if (snapshot.errored) {
-      state.analytics?.reportEvent(NexusAnalyticsEvents.BALANCES_FETCH_PARTIAL, {
-        ...reporting?.properties(),
-        'balances.partial': true,
-        'balances.count': snapshot.balances.length,
-      });
-    }
-    const outputIsNative = token.isNative || isNativeAddress(token.address);
-    const native = prepared.dstChain.nativeCurrency;
-    const buildPreview = async (sources?: IntentSource[]) => {
-      const selected = sources?.map((source) => ({ ...source }));
-      const balances = filterFundingBalances(snapshot.balances, selected);
-      const tokenEntry = balances.find(
-        (entry) =>
-          entry.chainId === input.toChainId &&
-          (outputIsNative ? entry.isNative : equalFold(entry.tokenAddress, token.address))
-      );
-      const nativeEntry = balances.find(
-        (entry) => entry.chainId === input.toChainId && entry.isNative
-      );
-      const tokenBalance = tokenEntry?.usableBalanceRaw ?? 0n;
-      const nativeBalance = nativeEntry?.usableBalanceRaw ?? 0n;
-      const priced = await priceExecuteFunding(prepared);
-      const funding = calculateIntentFunding({
-        outputIsNative,
-        outputAmountRaw: input.toAmountRaw,
-        outputBalanceRaw: tokenBalance,
-        executeValueRaw: executeParams.value ?? 0n,
-        estimatedGasCostRaw: priced.estimatedTotalCost,
-        nativeBalanceRaw: nativeBalance,
-      });
-      const executable =
-        funding.outputAmountRaw === 0n && funding.gasDropRaw === 0n
-          ? undefined
-          : await state.middlewareClient.getIntentQuote(
-              await exactOutRequest(
-                {
-                  toChainId: input.toChainId,
-                  toTokenAddress: token.address,
-                  toAmountRaw: funding.outputAmountRaw,
-                  toNativeAmountRaw: funding.gasDropRaw,
-                  sources: selected,
-                },
-                { slippageBps: options?.slippageBps }
-              ),
-              reporting?.attemptId
-            );
-      if (executable) assertIntentQuoteFresh(executable, Date.now());
-      const tokenReference =
-        tokenEntry?.valueUsd != null && tokenBalance > 0n
-          ? { amountRaw: tokenBalance, valueUsd: String(tokenEntry.valueUsd) }
-          : executable && {
-              amountRaw: executable.quote.output.amountRaw,
-              valueUsd: executable.quote.output.amountUsd,
-            };
-      const nativeReference = outputIsNative
-        ? tokenReference
-        : nativeEntry && {
-            amountRaw: nativeBalance,
-            valueUsd: nativeEntry.valueUsd == null ? undefined : String(nativeEntry.valueUsd),
-          };
-      const tokenAmount = (raw: bigint) => formatFundingAmount(raw, token.decimals, tokenReference);
-      const nativeAmount = (raw: bigint) =>
-        formatFundingAmount(raw, native.decimals, nativeReference);
-      const tokenShortfall =
-        input.toAmountRaw > tokenBalance ? input.toAmountRaw - tokenBalance : 0n;
-      const gasShortfall = outputIsNative
-        ? funding.outputAmountRaw - tokenShortfall
-        : funding.gasDropRaw;
-      const approval = priced.approvalContext;
-      const intent: SwapAndExecuteIntent = {
-        executeRequirement: {
-          chain: {
-            id: prepared.dstChain.id,
-            name: prepared.dstChain.name,
-            logo: prepared.dstChain.custom.icon,
-          },
-          to: executeParams.to,
-          token: {
-            address: token.address,
-            symbol: token.symbol,
-            decimals: token.decimals,
-            ...tokenAmount(input.toAmountRaw),
-          },
-          gas: {
-            address: ZERO_ADDRESS,
-            symbol: native.symbol,
-            decimals: native.decimals,
-            ...nativeAmount(priced.estimatedTotalCost),
-            estimatedGasUnits: priced.tx.gas,
-            approvalGasUnits: priced.approvalTx?.gas ?? 0n,
-            feeParams: priced.feeParams,
-            l1FeeRaw: priced.l1Fee,
-            priceTier: prepared.priceTier,
-          },
-          nativeValue: executeParams.value ? nativeAmount(executeParams.value) : null,
-          tokenApproval: approval
-            ? {
-                token: {
-                  address: approval.token.contractAddress,
-                  symbol: approval.token.symbol,
-                  decimals: approval.token.decimals,
-                },
-                ...formatFundingAmount(approval.amount, approval.token.decimals),
-                spender: approval.spender,
-              }
-            : null,
-        },
-        available: { token: tokenAmount(tokenBalance), gas: nativeAmount(nativeBalance) },
-        shortfall: { token: tokenAmount(tokenShortfall), gas: nativeAmount(gasShortfall) },
-        ...(executable ? { swapRequired: true, quote: executable.quote } : { swapRequired: false }),
-      };
-      return { intent, executable, priced, sources: selected };
-    };
-    const emitQuote = (preview: Awaited<ReturnType<typeof buildPreview>>) => {
-      if (!preview.executable) return;
-      const event: IntentEvent = { type: 'quote', quote: preview.executable.quote };
-      reporting?.observe(event);
-      runNonBlocking('IntentEventEmitFailed', () => options?.onEvent?.(event), {
-        eventType: event.type,
-      });
-    };
-    let current = await buildPreview(input.sources);
-    emitQuote(current);
-    const onIntent = options?.hooks?.onIntent;
-    if (onIntent) {
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        let accepting = false;
-        let pending = Promise.resolve();
-        const fail = (error: unknown) => {
-          if (settled) return;
-          settled = true;
-          reject(error);
-        };
-        const allow = () => {
-          if (settled || accepting) return;
-          accepting = true;
-          void pending.then(() => {
-            if (settled) return;
-            settled = true;
-            resolve();
-          });
-        };
-        const refresh = (sources?: IntentSource[]) => {
-          if (settled || accepting) return Promise.resolve(current.intent);
-          const selected = sources?.map((source) => ({ ...source }));
-          const next = pending.then(async () => {
-            if (settled) return current.intent;
-            try {
-              const updated = await buildPreview(selected ?? current.sources);
-              if (!settled) {
-                current = updated;
-                emitQuote(current);
-              }
-              return current.intent;
-            } catch (error) {
-              reporting?.refreshFailed(error);
-              throw error;
-            }
-          });
-          pending = next.then(
-            () => undefined,
-            () => undefined
-          );
-          return next;
-        };
-        try {
-          Promise.resolve(
-            onIntent({
-              intent: current.intent,
-              allow,
-              deny: () => fail(Errors.userDeniedIntent()),
-              refresh,
-              ...(reporting ? { attemptId: reporting.attemptId } : {}),
-            })
-          ).catch(fail);
-        } catch (error) {
-          fail(error);
-        }
-      });
-    }
-    const acceptedQuote = current.executable;
-    const swapResult = acceptedQuote
-      ? await runIntent(
-          {
-            requestQuote: async () => acceptedQuote,
-            quoteAlreadyEmitted: true,
-            reporting,
-            onEvent: options?.onEvent,
-            pollingIntervalMs: options?.pollingIntervalMs,
-            timeoutMs: (options?.fillTimeoutMinutes ?? 2) * 60_000,
-          },
-          intentRuntime(reporting?.attemptId)
-        )
-      : undefined;
-    if (!swapResult) reporting?.skip();
-    const finalParams = {
-      ...executeParams,
-      gas: current.priced.tx.gas,
-      ...(await options?.beforeExecute?.()),
-    };
-    const executed = await flowExecute(finalParams, deps, current.priced);
-    return swapResult
-      ? { swapSkipped: false, swapResult, approval: executed.approval, execute: executed.execute }
-      : { swapSkipped: true, approval: executed.approval, execute: executed.execute };
-  };
+  const swapAndExecute = createSwapAndExecute({
+    state,
+    getEvm,
+    getChainList,
+    getIntentCatalog,
+    loadExecuteToken,
+    exactInRequest,
+    exactOutRequest,
+    intentRuntime,
+  });
 
   const listIntents = async (params?: ListIntentsParams): Promise<IntentHistoryResult> => {
     const page = params?.page ?? 1;

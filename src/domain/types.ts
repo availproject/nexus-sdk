@@ -83,8 +83,17 @@ export type ExecuteSimulation = {
   estimatedTotalCost: bigint;
 };
 
+export type BeforeExecuteContext = {
+  /** Net destination balance change measured across fulfillment, in raw token units. */
+  receivedAmountRaw: bigint;
+  /** Funds allocated to this execution, including selected destination-token inputs. */
+  executeAmountRaw: bigint;
+};
+
 export type BeforeExecuteHook = {
-  beforeExecute?: () => Promise<{ value?: bigint; data?: Hex; gas?: bigint }>;
+  beforeExecute?: (
+    context: BeforeExecuteContext
+  ) => Promise<{ value?: bigint; data?: Hex; gas?: bigint }>;
 };
 
 export const IntentStatus = {

@@ -263,40 +263,70 @@ pass through unchanged, including local validation failures before an HTTP call.
 ## Composite intent plus execute
 
 `swapAndExecute` retains a small amount of local calculation because the SDK must know what the
-later contract call needs.
+later contract call needs. `src/client/swap-and-execute.ts` owns this flow; `src/client/base.ts`
+wires client state, catalog lookups, shared quote builders, and the serialized wallet runtime into it.
 
 ```text
-validate required execute.gas
+validate composite input, including required execute.gas
   -> prepare calls and approvals + fetch a balance snapshot
   -> price supplied execute gas and estimated approval gas
   -> calculate destination token/native shortfall
-  -> request a quote if funding is needed
+  -> request an exact-output shortfall quote or an exact-input quote for fixed source amounts
   -> review composite intent, including when already funded
   -> refresh fees, shortfalls, and quote on demand
+  -> read the destination balance before funding
   -> submit accepted quote through canonical intent flow and wait for fulfilled, or skip funding
-  -> run optional beforeExecute hook
+  -> measure the destination balance difference after fulfillment
+  -> run optional beforeExecute hook with actual proceeds and the execution amount
+  -> refresh exact-input approval amounts and allowance checks
   -> execute destination transaction
 ```
 
 Native-token output combines the contract value and gas requirement. If only gas is missing and
 the funding token is non-native, the request uses one raw output unit plus the provider gas-drop
-amount so the intent remains valid.
+amount so the exact-output intent remains valid.
+
+Exact output remains the default and may skip funding. Exact input requires explicit source amounts
+and keeps inputs matching the destination chain/token local. Only the remaining sources enter the
+swap; if none remain, funding is skipped and native gas must already be available for ERC-20 output.
+Review estimates combine the quote's minimum output with the selected local amount. Unselected
+destination tokens are preserved. Non-native output requests the native shortfall as a gas drop.
+Native output reserves the missing execution value and gas from the selected funds and quoted minimum.
+
+After review and queued refreshes settle, direct RPC reads measure the destination balance immediately
+before funding and after fulfillment. Exact-input execution uses that difference plus the accepted
+local amount, with native execution reserves deducted. `beforeExecute` receives `receivedAmountRaw`
+and `executeAmountRaw`, allowing callers to encode the actual amount. Exact output retains its
+requested execution amount. Balance differences intentionally include unrelated transfers; they do
+not attribute receipts to an intent. A missing local allocation, failed read, non-positive exact-input
+delivery, or insufficient native reserve prevents destination execution.
 
 Composite operations do not build routes locally.
 
+Private Zod schemas in `src/client/swap-and-execute.ts` validate the trade mode, destination,
+sources, and execution fields before preparing funding. Execution validation reuses the schema
+from `src/execute/execute.ts`; quote refreshes reuse the same mode-specific source schemas.
+
 `execute.gas` supplies the raw estimate; the destination call is never estimated through RPC before
-funding. Approval gas is estimated separately only when the allowance is insufficient, with a
-70,000-unit fallback. `src/execute/fee-estimation.ts` applies fee-history tiers, gas/price buffers,
+funding. Approval gas is estimated separately when the allowance is insufficient, and reserved for
+exact-input destination-token approvals whose final amount is not yet known, with a 70,000-unit
+fallback. `src/execute/fee-estimation.ts` applies fee-history tiers, gas/price buffers,
 OP/Scroll L1 fees, and Arbitrum L1 gas. Prepared calls and raw gas stay unchanged across refreshes;
 buffered gas and fee settings are retained for execution.
+After the exact-input hook returns, the SDK replaces the configured destination-token approval amount
+with the actual execution amount, rechecks allowance, and rebuilds the approval using the reserved gas.
+It skips the approval when the current allowance suffices. Callers do not construct approval overrides.
+For fully local input selections, the known amount is checked during review so no unnecessary
+approval gas is reserved when allowance already suffices.
 
-`src/client/base.ts` owns composite review. `SwapAndExecuteIntent` exposes execution requirements,
-available balances, shortfalls, `swapRequired`, and a quote only when funding is needed. The hook
+`src/client/swap-and-execute.ts` owns composite review. `SwapAndExecuteIntent` exposes execution
+requirements, available balances, shortfalls, `swapRequired`, and a quote when a swap will run. The hook
 always runs if supplied, even for fully funded execution. Refresh reuses the original balance
-snapshot and allowance decision, filters it by the selected sources, reprices fees, and replaces
-the quote. It commits source selection, fees, and quote together after success. Refreshes are
-serialized, and approval waits for pending refreshes. Middleware destination balance reservations
-are not implemented. Standalone `simulateExecute` retains RPC gas estimation.
+snapshot and allowance decision, applies the mode's source accounting, reprices fees, and replaces
+the quote without changing trade type. Exact-input replacement sources require positive amounts;
+clearing them is invalid. It commits source selection, fees, and quote together after success.
+Refreshes are serialized, and approval waits for pending refreshes. Middleware destination balance
+reservations are not implemented. Standalone `simulateExecute` retains RPC gas estimation.
 
 ## Standalone execute
 

@@ -103,6 +103,7 @@ export const createExecuteTxContext = async (input: {
   value?: bigint;
   data?: Hex;
   gas?: bigint;
+  forceApproval?: boolean;
   tokenApproval?: {
     token: TokenInfo;
     amount: bigint;
@@ -123,15 +124,17 @@ export const createExecuteTxContext = async (input: {
   let approvalTx: Tx | null = null;
   let approvalContext: ExecuteApprovalContext | null = null;
   if (allowanceCheck && speculativeApprovalTx && input.tokenApproval) {
-    const currentAllowance = await erc20GetAllowance(
-      {
-        contractAddress: allowanceCheck.tokenAddress,
-        spender: allowanceCheck.spender,
-        owner: input.ownerAddress,
-      },
-      dstPublicClient
-    );
-    if (currentAllowance < allowanceCheck.requiredAllowance) {
+    const needsApproval =
+      input.forceApproval ||
+      (await erc20GetAllowance(
+        {
+          contractAddress: allowanceCheck.tokenAddress,
+          spender: allowanceCheck.spender,
+          owner: input.ownerAddress,
+        },
+        dstPublicClient
+      )) < allowanceCheck.requiredAllowance;
+    if (needsApproval) {
       approvalTx = speculativeApprovalTx;
       approvalContext = {
         token: input.tokenApproval.token,

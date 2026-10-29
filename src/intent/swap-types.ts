@@ -29,10 +29,10 @@ export interface SwapExecuteParams {
   tokenApproval?: { toTokenAddress: Hex; amount: bigint; spender: Hex };
 }
 
-export interface SwapAndExecuteParams {
-  toChainId: number;
-  toTokenAddress: Hex;
-  toAmountRaw: bigint;
-  sources?: Array<{ chainId: number; tokenAddress?: Hex }>;
+/** Exact output is the default. Exact input executes received funds plus selected local tokens. */
+export type SwapAndExecuteParams = {
   execute: SwapExecuteParams;
-}
+} & (
+  | (SwapExactInParams & { tradeType: 'exactInput'; toAmountRaw?: never })
+  | (Omit<SwapExactOutParams, 'toNativeAmountRaw'> & { tradeType?: 'exactOutput' })
+);
