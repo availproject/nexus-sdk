@@ -198,6 +198,15 @@ reserved approval gas. Refresh retains the trade type and validates replacement 
 If only gas is missing for a non-native exact-output token, request one raw output unit plus the
 gas drop.
 
+`useProviderDestinationExecution: true` requires provider execution on `swapAndExecute`; it never
+falls back to wallet execution. Swap-only methods do not expose destination calls. Provider mode
+quotes the full execution budget, including any explicitly selected local sources, without wallet
+balance contributions or destination wallet gas reserves. Reuse the execution input and call
+`beforeExecute` before review and on refresh with the fixed budget. Require middleware's
+`supportsDestinationCalls` flag and a final minimum covering the encoded amount before signing.
+Exact input reserves 1% of the preview minimum capped at $1 using its USD valuation, separately
+from slippage. Provider results expose the execution amount and intent, without a wallet transaction.
+
 ## Errors
 
 Use `Errors.*` and the `NexusError` subclasses. Preserve stable category/code/context semantics.
