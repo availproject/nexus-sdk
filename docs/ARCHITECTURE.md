@@ -110,6 +110,9 @@ public client method
        resolve only when fulfilled
 ```
 
+Ordinary swaps never attach destination calls. Provider destination execution is an explicit
+`swapAndExecute` option, described in the composite flow below.
+
 The quote returned by `refresh()` replaces the complete executable quote atomically. Execution
 never combines public fields from one quote with private instructions from another.
 
@@ -262,9 +265,10 @@ pass through unchanged, including local validation failures before an HTTP call.
 
 ## Composite intent plus execute
 
-`swapAndExecute` retains a small amount of local calculation because the SDK must know what the
-later contract call needs. `src/client/swap-and-execute.ts` owns this flow; `src/client/base.ts`
-wires client state, catalog lookups, shared quote builders, and the serialized wallet runtime into it.
+`swapAndExecute` defaults to wallet execution and retains a small amount of local calculation
+because the SDK must know what the later contract call needs. `src/client/swap-and-execute.ts`
+owns this flow; `src/client/base.ts` wires client state, catalog lookups, shared quote builders,
+and the serialized wallet runtime into it.
 
 ```text
 validate composite input, including required execute.gas
@@ -327,6 +331,53 @@ the quote without changing trade type. Exact-input replacement sources require p
 clearing them is invalid. It commits source selection, fees, and quote together after success.
 Refreshes are serialized, and approval waits for pending refreshes. Middleware destination balance
 reservations are not implemented. Standalone `simulateExecute` retains RPC gas estimation.
+
+### Provider execution of destination calls
+
+`useProviderDestinationExecution: true` selects a separate composite preparation path and never
+falls back to wallet execution. Omitted or false uses the existing wallet path above.
+`client/swap-and-execute.ts` reuses the existing execution input and `beforeExecute` hook, builds
+an ERC-20 approval (when configured) followed by the execution call, and delegates fixed-budget
+quoting to `intent/destination-calls.ts`. The swap-only APIs have no destination-call wiring or
+public call-builder callback.
+
+```text
+validate composite input and execution token identity
+  -> exact output: quote the full requested amount with the encoded calls
+  -> exact input: preview Relay, reserve 1% of its minimum capped at $1, encode calls, quote again
+  -> require supportsDestinationCalls and a final minimum covering the fixed budget
+  -> review provider execution requirements and the final executable quote
+  -> refresh calls, budget, and final quote together on demand
+  -> submit the accepted quote through the canonical intent flow
+  -> return after provider fulfillment, without a wallet execution transaction
+```
+
+Every provider-spent asset must be funded by the quote. Destination balances are never implicitly
+subtracted from exact-output funding or added to exact-input execution. Selected local exact-input
+tokens remain explicit quote inputs. Provider mode does not read wallet destination balances,
+allowances, or fee estimates, or reserve destination wallet execution gas. Only the output token
+may be approved, and nonzero call value requires native output sufficient to fund it. Calls encode
+native value as a decimal string of raw units at the middleware boundary.
+
+Exact-input reserves use the preview's minimum and USD valuation, independently of slippage. The
+percentage rounds up and the dollar cap rounds down to raw units; unpriced minima or unrepresentable
+positive budgets reject. The final minimum must still cover the encoded amount. `beforeExecute`
+runs before review and on refresh: its received amount is the preview minimum (the requested amount
+for exact output), and its execution amount is the fixed budget. It never runs after provider
+fulfillment. Preparation failures retain the last complete reviewed intent.
+
+`supportsDestinationCalls` describes the selected route, not the number of candidate sources.
+One selected chain/token leg supports calls; multiple selected funding legs return a transfer quote
+with the flag false. The SDK rejects that quote before review/signing when provider execution is
+required. Missing flags normalize to false for older middleware. The SDK does not submit that
+transfer quote or send a wallet deposit. All refreshes enforce the same requirement.
+
+Review intents expose `executionMode`, the encoded token/value/approval amounts, and zero wallet
+execution gas in provider mode; route fees include provider execution costs. Results discriminate
+`executionMode: 'provider'` (funding required, no wallet `execute` or `approval`) from `'wallet'`
+(existing transaction results). Both expose `executeAmountRaw`. Surplus provider output goes to
+the recipient. The browser's existing exact-input and exact-output deposit tabs opt into this mode,
+use the accepted result amount, and link the intent without inventing a deposit transaction hash.
 
 ## Standalone execute
 

@@ -253,6 +253,7 @@ function CompositeIntentBody({
   actionLabel?: string;
 }) {
   const exec = intent.executeRequirement;
+  const providerExecution = intent.executionMode === "provider";
   const hasFunding = intent.swapRequired;
   const shortfall = hasFunding ? intent.shortfall : undefined;
 
@@ -265,7 +266,7 @@ function CompositeIntentBody({
   const gasPct = pctOf(nativeRequired.minus(shortfall?.gas.amount ?? "0").toFixed(), nativeRequired.toFixed());
 
   const funding = intent.swap;
-  const showFunding = !allSufficient && funding !== undefined;
+  const showFunding = (providerExecution || !allSufficient) && funding !== undefined;
 
   return (
     <>
@@ -281,7 +282,13 @@ function CompositeIntentBody({
       />
 
       <div className="intent-line-items">
-        <CoverageRow
+        {providerExecution ? (
+          <LineItem
+            label="Destination execution"
+            sub="Relay supplies the deposit on your behalf"
+            value="Included in route"
+          />
+        ) : <CoverageRow
           status={allSufficient ? "sufficient" : "shortfall"}
           title={allSufficient ? "Token & gas covered" : undefined}
           bars={[
@@ -300,7 +307,7 @@ function CompositeIntentBody({
               icon: <GasIcon />,
             },
           ]}
-        />
+        />}
 
         {showFunding && funding && (
           <LineItemAccordion
@@ -318,8 +325,8 @@ function CompositeIntentBody({
         <LineItem
           size="secondary"
           label="Gas"
-          sub="Execution gas on destination"
-          value={`${fmt(exec.gas.amount)} ${exec.gas.symbol}`}
+          sub={providerExecution ? "Covered by Relay" : "Execution gas on destination"}
+          value={providerExecution ? "Included in route" : `${fmt(exec.gas.amount)} ${exec.gas.symbol}`}
           valueSub={exec.gas.value === undefined ? undefined : formatUsd(exec.gas.value)}
         />
 

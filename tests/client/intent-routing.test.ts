@@ -282,3 +282,24 @@ describe('cached provider checks before quoting', () => {
     expect(ctx.getIntentChains).not.toHaveBeenCalled();
   });
 });
+
+describe('ordinary swap quoting', () => {
+  it.each(['exactInput', 'exactOutput'] as const)('keeps %s free of destination execution wiring', async (tradeType) => {
+    const ctx = await setup([chain(1, [], ['relay']), chain(10, ['relay'], [])]);
+    ctx.getIntentQuote.mockResolvedValue(normalizeIntentQuote(sponsoredQuoteResponse()));
+    const destinationCalls = vi.fn(() => [{ to: ACCOUNT, data: '0x1234' }]);
+    const options = {
+      destinationCalls, useProviderDestinationExecution: true,
+      hooks: { onIntent: ({ deny }: import('../../src').IntentHookData) => deny() },
+    };
+    const input = { ...destination, sources: [source(10)] };
+    await expect(tradeType === 'exactInput'
+      ? ctx.base.swapWithExactIn(input, options)
+      : ctx.base.swapWithExactOut({ ...input, toAmountRaw: 10n }, options))
+      .rejects.toMatchObject({ code: 'user_action/intent_hook_denied' });
+    expect(destinationCalls).not.toHaveBeenCalled();
+    expect(ctx.getIntentQuote).toHaveBeenCalledOnce();
+    expect(ctx.getIntentQuote.mock.calls[0][0]).not.toHaveProperty('destinationCalls');
+    expect(ctx.getIntentQuote.mock.calls[0][0]).not.toHaveProperty('preferredProviders');
+  });
+});

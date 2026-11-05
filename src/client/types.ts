@@ -46,6 +46,8 @@ export type SwapOperationOptions = IntentOperationOptions;
 
 export type SwapAndExecuteOptions = Omit<SwapOperationOptions, 'hooks'> &
   BeforeExecuteHook & {
+    /** Require provider execution of the destination call; unsupported routes reject. Defaults to false. */
+    useProviderDestinationExecution?: boolean;
     hooks?: { onIntent?: (data: SwapAndExecuteHookData) => void | Promise<void> };
   };
 

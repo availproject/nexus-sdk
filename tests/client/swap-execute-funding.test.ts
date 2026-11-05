@@ -140,6 +140,218 @@ const setup = async (chainId = 1, balances: IntentBalance[] = []) => {
   return { client, params, send, getIntentQuote, getIntentBalances, submitIntent };
 };
 
+describe('provider destination execution on swapAndExecute', () => {
+  const providerQuote = (request: IntentQuoteRequest, index = 1, minimum = '1000', usd = '50', supported = true) => {
+    const result = quote(request, index, request.output.amount ?? minimum, minimum);
+    result.quote.provider = 'relay';
+    result.quote.supportsDestinationCalls = supported;
+    result.quote.output.minAmountUsd = usd;
+    return result;
+  };
+  const exactInput = (ctx: Awaited<ReturnType<typeof setup>>): Extract<SwapAndExecuteParams, { tradeType: 'exactInput' }> => ({
+    tradeType: 'exactInput', toChainId: 1, toTokenAddress: TOKEN,
+    sources: [{ chainId: 11155111, tokenAddress: TOKEN, amountRaw: 2000n }],
+    execute: { ...ctx.params.execute,
+      tokenApproval: { toTokenAddress: TOKEN, amount: 0n, spender: TARGET } },
+  });
+
+  it('quotes approval and execution from existing inputs and returns no wallet transaction', async () => {
+    const ctx = await setup(1, [balance(11155111, TOKEN, 10_000n), balance(8453, TOKEN, 10_000n)]);
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request));
+    rpc.readContract.mockRejectedValue(new Error('Wallet allowance must not be read'));
+    rpc.getFeeHistory.mockRejectedValue(new Error('Wallet execution must not be priced'));
+    const beforeExecute = vi.fn(async (amounts) => {
+      expect(amounts).toEqual({ receivedAmountRaw: 1000n, executeAmountRaw: 1000n });
+      expect(ctx.submitIntent).not.toHaveBeenCalled();
+      return { data: '0xbeef' as const };
+    });
+    const result = await ctx.client.swapAndExecute({
+      ...ctx.params,
+      sources: [{ chainId: 11155111, tokenAddress: TOKEN }, { chainId: 8453, tokenAddress: TOKEN }],
+      execute: { ...ctx.params.execute,
+        tokenApproval: { toTokenAddress: TOKEN, amount: 1000n, spender: TARGET } },
+    }, {
+      useProviderDestinationExecution: true, beforeExecute,
+      hooks: { onIntent: ({ intent, allow }) => {
+        expect(intent.executionMode).toBe('provider');
+        expect(intent.executeRequirement.gas.amountRaw).toBe(0n);
+        expect(intent.shortfall.gas.amountRaw).toBe(0n);
+        expect(intent.executeRequirement.tokenApproval?.amountRaw).toBe(1000n);
+        expect(beforeExecute).toHaveBeenCalledOnce();
+        allow();
+      } },
+    });
+    expect(ctx.getIntentQuote).toHaveBeenCalledOnce();
+    expect(ctx.getIntentQuote.mock.calls[0][0]).toMatchObject({
+      preferredProviders: ['relay'], output: { amount: '1000' },
+      destinationCalls: [
+        { to: TOKEN, data: encodeFunctionData({ abi: ERC20ABI, functionName: 'approve', args: [TARGET, 1000n] }), value: '0' },
+        { to: TARGET, data: '0xbeef', value: '0' },
+      ],
+    });
+    expect(ctx.getIntentQuote.mock.calls[0][0]).not.toHaveProperty('gasDrop');
+    expect(result).toMatchObject({ executionMode: 'provider', swapSkipped: false, executeAmountRaw: 1000n });
+    expect(result.execute).toBeUndefined();
+    expect(result.approval).toBeUndefined();
+    expect(ctx.send).not.toHaveBeenCalled();
+    expect(rpc.balanceOf).not.toHaveBeenCalled();
+    expect(ctx.submitIntent).toHaveBeenCalledOnce();
+  });
+
+  it.each([['50', 990n], ['1000', 999n]])('reserves one percent capped at $1 (%s USD) before the final exact-input quote', async (usd, executionAmount) => {
+    const ctx = await setup();
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request, 1, '1000', usd));
+    const beforeExecute = vi.fn(async (amounts) => {
+      expect(amounts).toEqual({ receivedAmountRaw: 1000n, executeAmountRaw: executionAmount });
+      return { data: '0xbeef' as const };
+    });
+    const result = await ctx.client.swapAndExecute(exactInput(ctx), { useProviderDestinationExecution: true, beforeExecute });
+    expect(ctx.getIntentQuote).toHaveBeenCalledTimes(2);
+    const [preview, final] = ctx.getIntentQuote.mock.calls.map(([request]) => request);
+    expect(preview).not.toHaveProperty('destinationCalls');
+    expect(preview).not.toHaveProperty('gasDrop');
+    expect(final.destinationCalls?.[0]).toMatchObject({
+      to: TOKEN, value: '0',
+      data: encodeFunctionData({ abi: ERC20ABI, functionName: 'approve', args: [TARGET, executionAmount] }),
+    });
+    expect(result).toMatchObject({ executionMode: 'provider', executeAmountRaw: executionAmount });
+    expect(beforeExecute).toHaveBeenCalledOnce();
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds calls and the final quote together on refresh and signs only the accepted quote', async () => {
+    const ctx = await setup();
+    ctx.getIntentQuote
+      .mockImplementationOnce(async (request) => providerQuote(request, 1))
+      .mockImplementationOnce(async (request) => providerQuote(request, 2))
+      .mockImplementationOnce(async (request) => providerQuote(request, 3, '2000'))
+      .mockImplementationOnce(async (request) => providerQuote(request, 4, '2000'));
+    const beforeExecute = vi.fn(async ({ executeAmountRaw }) => ({
+      data: encodeFunctionData({ abi: ERC20ABI, functionName: 'approve', args: [TARGET, executeAmountRaw] }),
+    }));
+    const result = await ctx.client.swapAndExecute(exactInput(ctx), {
+      useProviderDestinationExecution: true, beforeExecute,
+      hooks: { onIntent: async ({ intent, refresh, allow }) => {
+        expect(intent.executeRequirement.token.amountRaw).toBe(990n);
+        const updated = await refresh();
+        expect(updated.executionMode).toBe('provider');
+        expect(updated.executeRequirement.token.amountRaw).toBe(1980n);
+        allow();
+      } },
+    });
+    expect(beforeExecute.mock.calls.map(([amounts]) => amounts.executeAmountRaw)).toEqual([990n, 1980n]);
+    expect(result.executeAmountRaw).toBe(1980n);
+    expect(result.swapResult?.quote.id).toBe(`0x${'4'.padStart(64, '0')}`);
+    expect(ctx.submitIntent).toHaveBeenCalledOnce();
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it('keeps the $1 cap exact for raw amounts beyond Decimal division precision', async () => {
+    const ctx = await setup();
+    const minimum = 10n ** 70n + 999n;
+    const usd = '1000.000000000000000000000000000001';
+    const oneDollarRaw = minimum * 10n ** 30n / (1000n * 10n ** 30n + 1n);
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request, 1, minimum.toString(), usd));
+    const result = await ctx.client.swapAndExecute(exactInput(ctx), { useProviderDestinationExecution: true });
+    expect(minimum - result.executeAmountRaw).toBe(oneDollarRaw);
+  });
+
+  it('rejects an underfunded final quote before review or signing', async () => {
+    const ctx = await setup();
+    ctx.getIntentQuote
+      .mockImplementationOnce(async (request) => providerQuote(request))
+      .mockImplementationOnce(async (request) => providerQuote(request, 2, '980'));
+    const onIntent = vi.fn(({ allow }) => allow());
+    await expect(ctx.client.swapAndExecute(exactInput(ctx), {
+      useProviderDestinationExecution: true, hooks: { onIntent },
+    })).rejects.toMatchObject({ code: 'backend/error' });
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['preview', 'final'])('rejects before signing when the %s cannot execute calls', async (unsupported) => {
+    const ctx = await setup();
+    let index = 0;
+    ctx.getIntentQuote.mockImplementation(async (request) => {
+      index++;
+      return providerQuote(request, index, '1000', '50',
+        unsupported === 'preview' ? index > 1 : index !== 2);
+    });
+    const onIntent = vi.fn(({ allow }) => allow());
+    await expect(ctx.client.swapAndExecute(exactInput(ctx), {
+      useProviderDestinationExecution: true, hooks: { onIntent },
+    })).rejects.toMatchObject({ code: 'validation/invalid_input' });
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(ctx.getIntentQuote).toHaveBeenCalledTimes(unsupported === 'preview' ? 1 : 2);
+    expect(ctx.getIntentQuote.mock.calls.every(([request]) => request.gasDrop === undefined)).toBe(true);
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported exact-output routes without a wallet fallback', async () => {
+    const ctx = await setup();
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request, 1, '1000', '50', false));
+    await expect(ctx.client.swapAndExecute(ctx.params, { useProviderDestinationExecution: true }))
+      .rejects.toMatchObject({ code: 'validation/invalid_input' });
+    expect(ctx.getIntentQuote).toHaveBeenCalledOnce();
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['exactInput', 'exactOutput'] as const)('funds the entire provider call through the quote, without implicitly using local tokens (%s)', async (tradeType) => {
+    const ctx = await setup(1, [balance(1, TOKEN, 500n), balance(1, ZERO_ADDRESS, 100_000_000n)]);
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request));
+    const params: SwapAndExecuteParams = tradeType === 'exactInput'
+      ? { ...exactInput(ctx), sources: [{ chainId: 1, tokenAddress: TOKEN, amountRaw: 500n }] }
+      : ctx.params;
+    const result = await ctx.client.swapAndExecute(params, {
+      useProviderDestinationExecution: true,
+      hooks: { onIntent: ({ intent, allow }) => {
+        expect(intent.available.token.amountRaw).toBe(0n);
+        expect(intent.executeRequirement.token.amountRaw).toBe(tradeType === 'exactInput' ? 990n : 1000n);
+        allow();
+      } },
+    });
+    expect(result.executionMode).toBe('provider');
+    const request = ctx.getIntentQuote.mock.calls[0][0];
+    if (tradeType === 'exactOutput') expect(request.output.amount).toBe('1000');
+    else expect(request.input).toEqual([{ chainId: 'EVM_1', token: TOKEN, amount: '500' }]);
+    expect(ctx.send).not.toHaveBeenCalled();
+    expect(rpc.balanceOf).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ERC-20 provider deposit that also needs native wallet value', async () => {
+    const ctx = await setup();
+    await expect(ctx.client.swapAndExecute({ ...ctx.params, execute: { ...ctx.params.execute, value: 123n } },
+      { useProviderDestinationExecution: true })).rejects.toMatchObject({ code: 'validation/invalid_input' });
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it('funds native provider call value from the quote without wallet gas reserves', async () => {
+    const ctx = await setup();
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request));
+    const result = await ctx.client.swapAndExecute({
+      ...ctx.params, toTokenAddress: ZERO_ADDRESS,
+      execute: { ...ctx.params.execute, value: 1000n },
+    }, { useProviderDestinationExecution: true });
+    expect(ctx.getIntentQuote.mock.calls[0][0]).toMatchObject({
+      output: { amount: '1000' }, destinationCalls: [{ to: TARGET, data: '0x1234', value: '1000' }],
+    });
+    expect(result.executionMode).toBe('provider');
+    expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['0', '100000'])('rejects an exact-input reserve that cannot fit the priced raw output (%s USD)', async (usd) => {
+    const ctx = await setup();
+    ctx.getIntentQuote.mockImplementation(async (request) => providerQuote(request, 1, '1', usd));
+    await expect(ctx.client.swapAndExecute(exactInput(ctx), { useProviderDestinationExecution: true }))
+      .rejects.toMatchObject({ code: 'backend/error' });
+    expect(ctx.submitIntent).not.toHaveBeenCalled();
+  });
+});
+
 describe('actual exact-input execution amounts', () => {
   it('keeps local inputs and deposits the measured proceeds plus the selected local amount', async () => {
     const ctx = await setup(1, [balance(1, TOKEN, 10_000_000n), balance(1, ZERO_ADDRESS, 100_000_000n)]);

@@ -282,7 +282,8 @@ const composed = await client.swapAndExecute(
     },
   },
 );
-console.log(composed.swapSkipped, composed.execute.txExplorerUrl);
+console.log(composed.swapSkipped, composed.executeAmountRaw);
+if (composed.executionMode === 'wallet') console.log(composed.execute.txExplorerUrl);
 if (!composed.swapSkipped) console.log(composed.swapResult.intentExplorerUrl);
 ```
 
@@ -362,6 +363,78 @@ recalculate funding.
 Use `executeAmountRaw` to prepare amount-sensitive calldata through this hook. Callbacks that ignore
 the context remain supported.
 Intent events cover funding; the composite promise covers the subsequent contract call too.
+
+### Provider destination execution
+
+Set `useProviderDestinationExecution: true` on `swapAndExecute` to require Relay to approve and
+execute the destination call. `swapWithExactIn` and `swapWithExactOut` remain ordinary swaps.
+Reuse `execute.to`, `execute.data`, `execute.value`, and `execute.tokenApproval`; the SDK encodes
+the approval before the execution call. The destination contract must support acting on behalf of
+the recipient because its caller is Relay's router.
+
+```ts
+const deposited = await client.swapAndExecute(
+  {
+    tradeType: 'exactInput',
+    sources: [{ ...source, amountRaw: parseUnits('5', sourceToken.decimals) }],
+    toChainId: destination.chainId,
+    toTokenAddress: destination.tokenAddress,
+    execute: {
+      to: contract,
+      gas: 350_000n,
+      tokenApproval: { toTokenAddress: destination.tokenAddress, amount: 0n, spender: contract },
+    },
+  },
+  {
+    useProviderDestinationExecution: true,
+    beforeExecute: async ({ executeAmountRaw }) => ({ data: buildDepositData(executeAmountRaw) }),
+    hooks: {
+      onIntent({ intent, allow }) {
+        console.log(intent.executionMode, intent.executeRequirement.token.amountRaw, intent.quote);
+        allow(); // In an app, call after the user confirms.
+      },
+    },
+  },
+);
+if (deposited.executionMode === 'provider') {
+  console.log(deposited.executeAmountRaw, deposited.swapResult.intentExplorerUrl);
+  // No wallet execution transaction: deposited.execute and deposited.approval are undefined.
+}
+```
+
+With this option omitted or `false`, the wallet flow described above remains the default. With it
+set to `true`, an unsupported route rejects before signing and never falls back to wallet execution.
+The middleware's `quote.supportsDestinationCalls` flag determines support from the funding legs
+actually selected: multiple candidates are allowed, but only one chain/token leg may fund the route.
+Multiple selected legs, or older middleware without the flag, reject.
+
+Provider execution funds the entire call through the quote. Existing destination wallet balances
+are not subtracted or implicitly added to the deposit. Exact-input sources matching the destination
+chain/token enter the quote as explicit source inputs too. The SDK never spends additional wallet
+tokens after fulfillment. Only the output token can be approved; native execution value must come
+from native output and fit within the quoted execution budget. ERC-20 output with native call value
+is unsupported in provider mode.
+
+Exact output quotes the requested `toAmountRaw` without wallet execution gas. Exact input first
+previews a Relay quote, then fixes the execution amount below its guaranteed minimum. The reserve
+is 1% of that minimum (rounded up to raw units), capped at $1 using the quote's USD valuation
+(rounded down to raw units). Unpriced output, or output too small to represent a positive reserve
+and execution amount, rejects. This reserve is separate from swap slippage.
+
+In provider mode, `beforeExecute` runs **before review** to prepare the encoded call, and again
+on every refresh. `receivedAmountRaw` is the preview's guaranteed minimum (the requested amount
+for exact output), not measured proceeds; `executeAmountRaw` is the fixed execution budget.
+Use the latter for amount-sensitive calldata or native `value`. Callbacks should only prepare the
+call and must be safe to repeat. The SDK quotes those calls and rejects a final minimum below the
+encoded budget before signing. Refresh commits the new calls, budget, and final quote together;
+a failed refresh retains the previous intent.
+
+The composite review exposes `executionMode: 'provider'`, the fixed deposit, and zero wallet gas
+requirements; provider execution costs are included in the quote. Source approvals and intent
+signatures may still require wallet prompts. Fulfillment completes provider execution, with remaining
+output going to the recipient. The result exposes `executeAmountRaw` and `swapResult`, with no
+fabricated `execute` or `approval` transaction. In wallet mode, `executeAmountRaw` is the actual
+execution allocation and the existing transaction results remain available.
 
 ## History and errors
 

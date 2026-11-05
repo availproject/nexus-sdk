@@ -1,4 +1,4 @@
-import type { Hex, WalletClient } from 'viem';
+import { encodeFunctionData, type Hex, maxUint256, type WalletClient } from 'viem';
 import { z } from 'zod';
 import type { AnalyticsManager } from '../analytics/AnalyticsManager';
 import { NexusAnalyticsEvents } from '../analytics/events';
@@ -14,6 +14,7 @@ import {
   priceExecuteFunding,
 } from '../execute/execute';
 import type { IntentCatalog } from '../intent/catalog';
+import { quoteDestinationCalls } from '../intent/destination-calls';
 import {
   calculateIntentFunding,
   filterFundingBalances,
@@ -28,6 +29,7 @@ import type {
 } from '../intent/swap-types';
 import type { IntentReporting } from '../intent/telemetry';
 import type {
+  ExecutableIntentQuote,
   IntentBalance,
   IntentBalancesResult,
   IntentEvent,
@@ -303,6 +305,7 @@ const buildPreview = async (context: SwapAndExecuteContext, sources?: IntentSour
     : previewFunding.gasDropRaw;
   const approval = priced.approvalContext;
   const intent: SwapAndExecuteIntent = {
+    executionMode: 'wallet',
     executeRequirement: {
       chain: {
         id: prepared.dstChain.id,
@@ -350,7 +353,135 @@ const buildPreview = async (context: SwapAndExecuteContext, sources?: IntentSour
   return { intent, executable, priced, sources: selected, localAmountRaw };
 };
 
-type SwapAndExecutePreview = Awaited<ReturnType<typeof buildPreview>>;
+const buildProviderPreview = async (
+  context: Omit<SwapAndExecuteContext, 'prepared' | 'snapshot'>,
+  sources?: IntentSource[]
+) => {
+  const {
+    input,
+    options,
+    reporting,
+    exactInput,
+    executeParams,
+    updateApprovalAmount,
+    deps,
+    token,
+    outputIsNative,
+    state,
+    exactInRequest,
+    exactOutRequest,
+  } = context;
+  const selection = parseSwapAndExecuteSources(sources, exactInput);
+  const approval = executeParams.tokenApproval;
+  if (approval && (outputIsNative || !equalFold(approval.toTokenAddress, token.address))) {
+    throw Errors.invalidInput('Provider execution can only approve the quoted output token');
+  }
+  // Every asset spent by the provider must enter through the quote, including local source tokens.
+  const request =
+    input.tradeType === 'exactInput'
+      ? await exactInRequest(
+          input,
+          deps.evm.address,
+          { slippageBps: options?.slippageBps },
+          selection.sources
+        )
+      : await exactOutRequest(
+          { ...input, toTokenAddress: token.address },
+          { slippageBps: options?.slippageBps },
+          selection.sources
+        );
+  let finalParams = executeParams;
+  const { executable, amountRaw } = await quoteDestinationCalls(
+    request,
+    (body) => state.middlewareClient.getIntentQuote(body, reporting?.attemptId),
+    async ({ amountRaw, minimumAmountRaw }) => {
+      finalParams = parseInput(executeParamsSchema.required({ gas: true }), {
+        ...executeParams,
+        ...(await options?.beforeExecute?.({
+          receivedAmountRaw: minimumAmountRaw,
+          executeAmountRaw: amountRaw,
+        })),
+      });
+      const value = finalParams.value ?? 0n;
+      if ((!outputIsNative && value > 0n) || value > amountRaw) {
+        throw Errors.invalidInput(
+          'Provider execution value must be funded by the quoted native output'
+        );
+      }
+      const approvalAmount = updateApprovalAmount ? amountRaw : (approval?.amount ?? 0n);
+      parseInput(z.bigint().max(maxUint256), approvalAmount);
+      return [
+        ...(approval
+          ? [
+              {
+                to: token.address,
+                data: encodeFunctionData({
+                  abi: ERC20ABI,
+                  functionName: 'approve',
+                  args: [approval.spender, approvalAmount],
+                }),
+                value: 0n,
+              },
+            ]
+          : []),
+        { to: finalParams.to, data: finalParams.data ?? '0x', value },
+      ];
+    }
+  );
+  assertIntentQuoteFresh(executable, Date.now());
+  const chain = deps.chainList.getChainByID(input.toChainId);
+  const native = chain.nativeCurrency;
+  const reference = {
+    amountRaw: executable.quote.output.amountRaw,
+    valueUsd: executable.quote.output.amountUsd,
+  };
+  const tokenAmount = (raw: bigint) => formatFundingAmount(raw, token.decimals, reference);
+  const nativeAmount = (raw: bigint) =>
+    formatFundingAmount(raw, native.decimals, outputIsNative ? reference : undefined);
+  const intent: SwapAndExecuteIntent = {
+    executionMode: 'provider',
+    executeRequirement: {
+      chain: { id: chain.id, name: chain.name, logo: chain.custom.icon },
+      to: finalParams.to,
+      token: {
+        address: token.address,
+        symbol: token.symbol,
+        decimals: token.decimals,
+        ...tokenAmount(amountRaw),
+      },
+      gas: {
+        address: ZERO_ADDRESS,
+        symbol: native.symbol,
+        decimals: native.decimals,
+        ...nativeAmount(0n),
+        estimatedGasUnits: 0n,
+        approvalGasUnits: 0n,
+        feeParams: { type: 'legacy', gasPrice: 0n },
+        l1FeeRaw: 0n,
+        priceTier: executeParams.gasPrice ?? 'medium',
+      },
+      nativeValue: finalParams.value ? nativeAmount(finalParams.value) : null,
+      tokenApproval: approval
+        ? {
+            token: { address: token.address, symbol: token.symbol, decimals: token.decimals },
+            ...tokenAmount(updateApprovalAmount ? amountRaw : approval.amount),
+            spender: approval.spender,
+          }
+        : null,
+    },
+    available: { token: tokenAmount(0n), gas: nativeAmount(0n) },
+    shortfall: { token: tokenAmount(amountRaw), gas: nativeAmount(0n) },
+    swapRequired: true,
+    quote: executable.quote,
+  };
+  return { intent, executable, sources: selection.sources, executeAmountRaw: amountRaw };
+};
+
+type SwapAndExecutePreview = {
+  intent: SwapAndExecuteIntent;
+  executable?: ExecutableIntentQuote;
+  sources?: IntentSource[];
+};
 
 const emitQuote = (
   preview: SwapAndExecutePreview,
@@ -365,11 +496,12 @@ const emitQuote = (
   });
 };
 
-const reviewIntent = async (
-  initial: SwapAndExecutePreview,
-  context: SwapAndExecuteContext
-): Promise<SwapAndExecutePreview> => {
-  const { options, reporting } = context;
+const reviewIntent = async <T extends SwapAndExecutePreview>(
+  initial: T,
+  options: SwapAndExecuteOptions | undefined,
+  reporting: IntentReporting | undefined,
+  refreshPreview: (sources?: IntentSource[]) => Promise<T>
+): Promise<T> => {
   let current = initial;
   emitQuote(current, options, reporting);
   const onIntent = options?.hooks?.onIntent;
@@ -398,7 +530,7 @@ const reviewIntent = async (
         const next = pending.then(async () => {
           if (settled) return current.intent;
           try {
-            const updated = await buildPreview(context, selected ?? current.sources);
+            const updated = await refreshPreview(selected ?? current.sources);
             if (!settled) {
               current = updated;
               emitQuote(current, options, reporting);
@@ -480,6 +612,49 @@ export const createSwapAndExecute = ({
       evm: { walletClient: evm.client, address: evm.address },
       timing: state.analytics?.scopedTimingHooks(reporting?.attemptId),
     };
+    const runSwap = (acceptedQuote: ExecutableIntentQuote) =>
+      runIntent(
+        {
+          requestQuote: async () => acceptedQuote,
+          quoteAlreadyEmitted: true,
+          reporting,
+          onEvent: options?.onEvent,
+          pollingIntervalMs: options?.pollingIntervalMs,
+          timeoutMs: (options?.fillTimeoutMinutes ?? 2) * 60_000,
+        },
+        intentRuntime(reporting?.attemptId)
+      );
+    const contextBase = {
+      input,
+      options,
+      reporting,
+      exactInput,
+      executeParams,
+      updateApprovalAmount,
+      deps,
+      state,
+      exactInRequest,
+      exactOutRequest,
+    };
+    if (options?.useProviderDestinationExecution === true) {
+      const token = await getIntentCatalog().getToken(input.toChainId, input.toTokenAddress);
+      const context = {
+        ...contextBase,
+        token,
+        outputIsNative: token.isNative || isNativeAddress(token.address),
+      };
+      const preview = await buildProviderPreview(context, input.sources);
+      const current = await reviewIntent(preview, options, reporting, (sources) =>
+        buildProviderPreview(context, sources)
+      );
+      const swapResult = await runSwap(current.executable);
+      return {
+        executionMode: 'provider',
+        swapSkipped: false,
+        swapResult,
+        executeAmountRaw: current.executeAmountRaw,
+      };
+    }
     await loadExecuteToken(executeParams);
     const [prepared, snapshot, token] = await Promise.all([
       updateApprovalAmount
@@ -500,23 +675,16 @@ export const createSwapAndExecute = ({
     }
     const outputIsNative = token.isNative || isNativeAddress(token.address);
     const context: SwapAndExecuteContext = {
-      input,
-      options,
-      reporting,
-      exactInput,
-      executeParams,
-      updateApprovalAmount,
-      deps,
+      ...contextBase,
       prepared,
       snapshot,
       token,
       outputIsNative,
-      state,
-      exactInRequest,
-      exactOutRequest,
     };
     const preview = await buildPreview(context, input.sources);
-    const current = await reviewIntent(preview, context);
+    const current = await reviewIntent(preview, options, reporting, (sources) =>
+      buildPreview(context, sources)
+    );
     const measureReceived = exactInput || options?.beforeExecute !== undefined;
     const balanceBefore = measureReceived ? await readDestinationBalance(context) : 0n;
     if (exactInput && balanceBefore < current.localAmountRaw) {
@@ -527,19 +695,7 @@ export const createSwapAndExecute = ({
       );
     }
     const acceptedQuote = current.executable;
-    const swapResult = acceptedQuote
-      ? await runIntent(
-          {
-            requestQuote: async () => acceptedQuote,
-            quoteAlreadyEmitted: true,
-            reporting,
-            onEvent: options?.onEvent,
-            pollingIntervalMs: options?.pollingIntervalMs,
-            timeoutMs: (options?.fillTimeoutMinutes ?? 2) * 60_000,
-          },
-          intentRuntime(reporting?.attemptId)
-        )
-      : undefined;
+    const swapResult = acceptedQuote ? await runSwap(acceptedQuote) : undefined;
     if (!swapResult) reporting?.skip();
     const balanceAfter =
       measureReceived && swapResult ? await readDestinationBalance(context) : balanceBefore;
@@ -580,8 +736,21 @@ export const createSwapAndExecute = ({
     };
     const executed = await flowExecute(finalParams, deps, current.priced, updateApprovalAmount);
     return swapResult
-      ? { swapSkipped: false, swapResult, approval: executed.approval, execute: executed.execute }
-      : { swapSkipped: true, approval: executed.approval, execute: executed.execute };
+      ? {
+          executionMode: 'wallet',
+          executeAmountRaw,
+          swapSkipped: false,
+          swapResult,
+          approval: executed.approval,
+          execute: executed.execute,
+        }
+      : {
+          executionMode: 'wallet',
+          executeAmountRaw,
+          swapSkipped: true,
+          approval: executed.approval,
+          execute: executed.execute,
+        };
   };
 
   return swapAndExecute;

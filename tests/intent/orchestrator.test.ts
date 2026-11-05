@@ -24,6 +24,7 @@ const executableQuote = (byte = '11'): ExecutableIntentQuote => {
       id,
       provider: 'nexus-v2',
       tradeType: 'exactOutput',
+      supportsDestinationCalls: false,
       isExecutable: true,
       executionWarnings: [],
       input: [],

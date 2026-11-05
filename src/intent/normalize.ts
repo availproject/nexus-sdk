@@ -150,6 +150,7 @@ const quote = z.object({
   quoteId: hash,
   provider,
   tradeType: z.enum(['exactInput', 'exactOutput']),
+  supportsDestinationCalls: z.boolean().optional().default(false),
   isExecutable: z.boolean(),
   executionWarnings: z.array(
     z.object({
@@ -511,6 +512,7 @@ export const normalizeIntentQuote = (input: unknown): ExecutableIntentQuote => {
       id: parsed.quoteId as Hex,
       provider: parsed.provider,
       tradeType: parsed.tradeType,
+      supportsDestinationCalls: parsed.supportsDestinationCalls,
       isExecutable: parsed.isExecutable,
       executionWarnings: parsed.executionWarnings.map((warning) => ({
         code: warning.code,

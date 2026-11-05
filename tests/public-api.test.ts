@@ -39,6 +39,24 @@ import type {
 } from '../src';
 
 describe('public api exports', () => {
+  it('limits provider destination execution to swapAndExecute and exposes its result honestly', () => {
+    expectTypeOf<IntentQuote['supportsDestinationCalls']>().toEqualTypeOf<boolean>();
+    expectTypeOf<rootModule.SwapAndExecuteOptions['useProviderDestinationExecution']>()
+      .toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<Extract<keyof rootModule.SwapOperationOptions,
+      'destinationCalls' | 'useProviderDestinationExecution'>>().toEqualTypeOf<never>();
+    expectTypeOf<Extract<keyof rootModule.SwapAndExecuteOptions, 'destinationCalls'>>().toEqualTypeOf<never>();
+    expectTypeOf<rootModule.SwapAndExecuteIntent['executionMode']>().toEqualTypeOf<'wallet' | 'provider'>();
+    type Provider = Extract<SwapAndExecuteResult, { executionMode: 'provider' }>;
+    type Wallet = Extract<SwapAndExecuteResult, { executionMode: 'wallet' }>;
+    expectTypeOf<Provider['execute']>().toEqualTypeOf<undefined>();
+    expectTypeOf<Provider['approval']>().toEqualTypeOf<undefined>();
+    expectTypeOf<Provider['swapSkipped']>().toEqualTypeOf<false>();
+    expectTypeOf<Provider['swapResult']>().toEqualTypeOf<IntentResult>();
+    expectTypeOf<Wallet['execute']>().toEqualTypeOf<TxResult>();
+    expectTypeOf<SwapAndExecuteResult['executeAmountRaw']>().toEqualTypeOf<bigint>();
+  });
+
   it('exposes amount and destination quote recovery codes and diagnostic types', () => {
     expect(rootModule.ERROR_CODES.BACKEND_VALUE_ABOVE_CEILING).toBe('backend/value_above_ceiling');
     expect(rootModule.ERROR_CODES.BACKEND_NO_ROUTE_TO_DESTINATION).toBe('backend/no_route_to_destination');

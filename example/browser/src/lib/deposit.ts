@@ -275,6 +275,7 @@ export function getDepositProtocol(chainId: number): DepositProtocolMeta | undef
   return DEPOSIT_CONFIG[chainId]?.protocol;
 }
 
+// Both execution modes use this input; the SDK builds provider approvals from tokenApproval.
 export function buildDepositExecute(params: {
   chainId: number;
   symbol: string;
