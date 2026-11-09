@@ -5,15 +5,17 @@ its bridge-specific event names and timeout paths do not apply to the current in
 
 ## Identity and correlation
 
-Every client event and operation error log carries `nexus.client.id`, `surface.name: nexus-sdk`,
-`surface.version`, `session.id`, and `nexus.network`. Client identity is the configured value, not a
-generated browser ID or hostname. The shared OTel resource retains the SDK service identity and
-package version; client/session/network attribution belongs on each record.
+Every client event and operation error log carries `nexus.client.id`, `surface.name`,
+`surface.version`, `session.id`, and `nexus.network`. Optional client options `surfaceName` and
+`surfaceVersion` default independently to `nexus-sdk` and the SDK package version. Client identity
+is the configured value, not a generated browser ID or hostname. The shared OTel resource retains the
+SDK service identity and package version; client/session/network attribution belongs on each record.
 
 The SDK sends `x-nexus-client-id`, `x-nexus-surface`, and `x-nexus-surface-version` on intent HTTP
-requests. Standalone `getSupportedChains(network, { clientId })` takes explicit identity;
-`client.utils.getSupportedChains(network)` uses its client configuration. Stateless utilities
-have no SDK session to attach. Their diagnostic logs remain separate from client operation logs.
+requests. Standalone `getSupportedChains(network, { clientId, surfaceName?, surfaceVersion? })`
+takes explicit identity; `client.utils.getSupportedChains(network)` uses its client configuration.
+Stateless utilities have no SDK session to attach. Their diagnostic logs remain separate from client
+operation logs.
 
 Each public swap call creates one `attempt.id`, reusing the operation's ID. It exists before local
 validation and the first quote. All quote refreshes, submit, status/detail polling, and composite

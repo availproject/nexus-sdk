@@ -39,6 +39,7 @@ import { isNativeAddress } from '../services/addresses';
 import { createChainList } from '../services/chain-list';
 import { getNetworkConfig } from '../services/network-config';
 import { equalFold } from '../services/strings';
+import type { SurfaceIdentity } from '../services/surface-identity';
 import { setLoggerProvider } from '../services/telemetry';
 import { trackWalletConnect } from './operation-boundary';
 import { createSwapAndExecute } from './swap-and-execute';
@@ -67,20 +68,26 @@ const nonNegativeAmount = (amount: bigint | undefined, label: string) => {
   }
 };
 
-export const createBase = (config: {
-  clientId: string;
-  network?: NexusNetwork;
-  debug?: boolean;
-  devTiming?: DevTimingConfig;
-  internal?: { middlewareClient?: MiddlewareClient };
-}) => {
+export const createBase = (
+  config: SurfaceIdentity & {
+    clientId: string;
+    network?: NexusNetwork;
+    debug?: boolean;
+    devTiming?: DevTimingConfig;
+    internal?: { middlewareClient?: MiddlewareClient };
+  }
+) => {
   const networkConfig = getNetworkConfig(config?.network);
   const state: BaseState = {
     chainList: null,
     intentCatalog: null,
     middlewareClient:
       config?.internal?.middlewareClient ??
-      createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, { clientId: config.clientId }),
+      createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, {
+        clientId: config.clientId,
+        surfaceName: config.surfaceName,
+        surfaceVersion: config.surfaceVersion,
+      }),
     networkConfig,
   };
   let walletQueue: Promise<unknown> = Promise.resolve();

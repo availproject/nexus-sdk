@@ -7,7 +7,7 @@ import { normalizeIntentQuote } from '../../src/intent/normalize';
 import { createChainList } from '../../src/services/chain-list';
 import { testChains } from '../fixtures/chains';
 import { sponsoredQuoteResponse } from '../fixtures/better-intent';
-import { makeMiddlewareClient } from '../helpers/middleware-client';
+import { makeMiddlewareClient, testClientIdentity } from '../helpers/middleware-client';
 
 const TOKEN = '0x0000000000000000000000000000000000000002';
 const OTHER_TOKEN = '0x00000000000000000000000000000000000000ab';
@@ -35,7 +35,7 @@ const setup = async (chains: IntentChain[], connected = true) => {
   const getIntentTokens = vi.fn(makeTokenFetcher(chains));
   const submitIntent = vi.fn();
   const base = createBase({
-    clientId: 'test-client', network: 'mainnet',
+    ...testClientIdentity, network: 'mainnet',
     internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens, getIntentQuote, getIntentChains, getIntentBalances, submitIntent }) },
   });
   base.setIntentCatalog(chains);

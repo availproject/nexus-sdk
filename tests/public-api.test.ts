@@ -176,13 +176,16 @@ describe('public api exports', () => {
     client.destroy();
   });
 
-  it('requires clientId when creating a client', () => {
+  it('requires clientId and accepts optional surface identity when creating a client', () => {
     expectTypeOf<Parameters<typeof rootModule.createNexusClient>>().toMatchTypeOf<
       [{ clientId: string }]
     >();
     expectTypeOf<keyof Parameters<typeof rootModule.createNexusClient>[0]>().toEqualTypeOf<
-      'clientId' | 'network' | 'debug' | 'analytics' | 'devTiming' | 'internal'
+      'clientId' | 'surfaceName' | 'surfaceVersion' | 'network' | 'debug' | 'analytics' | 'devTiming' | 'internal'
     >();
+    type Config = Parameters<typeof rootModule.createNexusClient>[0];
+    expectTypeOf<Config['surfaceName']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Config['surfaceVersion']>().toEqualTypeOf<string | undefined>();
   });
 
   it('exposes asynchronous paginated token selection helpers', () => {

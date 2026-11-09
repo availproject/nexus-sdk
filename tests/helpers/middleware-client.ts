@@ -3,6 +3,12 @@ import type { MiddlewareClient } from '../../src/intent/middleware';
 import { testChains } from '../fixtures/chains';
 import { makeTokenFetcher } from './catalog';
 
+export const testClientIdentity = {
+  clientId: 'test-client',
+  surfaceName: 'test-surface',
+  surfaceVersion: '1.0.0',
+};
+
 export const makeMiddlewareClient = (
   overrides: Partial<MiddlewareClient> = {}
 ): MiddlewareClient => ({

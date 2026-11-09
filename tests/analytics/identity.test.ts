@@ -16,6 +16,7 @@ describe('telemetry identity', () => {
     const networks = ['mainnet', 'canary'] as const;
     const clients = ['Partner.One', 'Partner.Two'].map((clientId, index) => createNexusClient({
       clientId, network: networks[index], analytics: { mode: 'on' },
+      ...(index === 0 ? { surfaceName: 'nexus-widget', surfaceVersion: '1.2.3' } : {}),
       internal: { middlewareClient: makeMiddlewareClient({
         getIntentChains: async () => { throw Errors.backend('catalog unavailable'); },
       }) },
@@ -34,12 +35,18 @@ describe('telemetry identity', () => {
         const props = tracks[index].mock.calls.find(([name]) => name === NexusAnalyticsEvents.SDK_INITIALIZATION_FAILED)?.[1];
         expect(props).toMatchObject({
           'nexus.client.id': index === 0 ? 'Partner.One' : 'Partner.Two',
-          'surface.name': 'nexus-sdk', 'surface.version': version,
+          'surface.name': index === 0 ? 'nexus-widget' : 'nexus-sdk',
+          'surface.version': index === 0 ? '1.2.3' : version,
           'session.id': client.analytics.getBaseProperties().sessionId,
           'nexus.network': networks[index],
         });
         const base = client.analytics.getBaseProperties();
         const globals = registrations[index].mock.calls[0][0];
+        expect(globals).toMatchObject({
+          'surface.name': index === 0 ? 'nexus-widget' : 'nexus-sdk',
+          'surface.version': index === 0 ? '1.2.3' : version,
+        });
+        expect(base.sdkVersion).toBe(version);
         for (const properties of [props, base, globals]) {
           expect(properties).toMatchObject({ 'nexus.network': networks[index] });
           expect(properties).not.toHaveProperty('network');
@@ -48,7 +55,8 @@ describe('telemetry identity', () => {
       const records = emit.mock.calls.map(([record]) => record.attributes);
       expect(records).toEqual(expect.arrayContaining(clients.map((client, index) => expect.objectContaining({
         'nexus.client.id': index === 0 ? 'Partner.One' : 'Partner.Two',
-        'surface.name': 'nexus-sdk', 'surface.version': version,
+        'surface.name': index === 0 ? 'nexus-widget' : 'nexus-sdk',
+        'surface.version': index === 0 ? '1.2.3' : version,
         'session.id': client.analytics.getBaseProperties().sessionId,
         'nexus.network': networks[index],
       }))));
@@ -59,12 +67,21 @@ describe('telemetry identity', () => {
     }
   });
 
-  it('uses nexus.network on utility error logs without a client session', async () => {
+  it.each([
+    [undefined, undefined, 'nexus-sdk', version],
+    ['nexus-widget', undefined, 'nexus-widget', version],
+    [undefined, '1.2.3', 'nexus-sdk', '1.2.3'],
+    ['nexus-widget', '1.2.3', 'nexus-widget', '1.2.3'],
+  ])('uses surface %s / %s on utility error logs without a client session', async (surfaceName, surfaceVersion, expectedName, expectedVersion) => {
     const emit = vi.fn();
     vi.spyOn(telemetry, 'telemetryLogger', 'get').mockReturnValue({ emit } as never);
-    await expect(getSupportedChains('canary', { clientId: '' })).rejects.toThrow('non-empty clientId');
+    await expect(getSupportedChains('canary', { clientId: '', surfaceName, surfaceVersion }))
+      .rejects.toThrow('non-empty clientId');
     const attributes = emit.mock.calls[0][0].attributes;
-    expect(attributes).toMatchObject({ operation: 'getSupportedChains', 'nexus.network': 'canary' });
+    expect(attributes).toMatchObject({
+      operation: 'getSupportedChains', 'nexus.network': 'canary',
+      'surface.name': expectedName, 'surface.version': expectedVersion,
+    });
     expect(attributes).not.toHaveProperty('network');
     expect(attributes).not.toHaveProperty('session.id');
   });

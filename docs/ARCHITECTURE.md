@@ -391,9 +391,12 @@ Execute uses cached chain metadata and is independent of intent route availabili
 ## Transport boundary
 
 The public client requires `clientId`. Its middleware transport sends
-`x-nexus-client-id`, `x-nexus-surface: nexus-sdk`, and the package version in
-`x-nexus-surface-version` through shared HTTP headers. The standalone catalog utility takes
-`{ clientId }`; client utilities bind the configured ID.
+`x-nexus-client-id`, `x-nexus-surface`, and `x-nexus-surface-version` through shared HTTP headers.
+Optional `surfaceName` and `surfaceVersion` default independently to `nexus-sdk` and the SDK package
+version. Public entrypoints resolve these defaults through `src/services/surface-identity.ts`;
+internal base, utility factory, and middleware configs require all three identity fields.
+The standalone catalog utility takes `{ clientId, surfaceName?, surfaceVersion? }`; client utilities
+bind the configured identity.
 
 `src/intent/middleware.ts` exposes only:
 
