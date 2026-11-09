@@ -35,6 +35,8 @@
   },
   "overrides": {
     "ws": "8.21.0",
-    "axios": "1.20.0"
+    "axios": "1.20.0",
+    "zod": "4.6.7",
+    "@base-org/account": "2.2.0"
   }
 }

@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
 import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
-import resolve from '@rollup/plugin-node-resolve';
 import terser from '@rollup/plugin-terser';
 import typescript from '@rollup/plugin-typescript';
 import { defineConfig } from 'rollup';
@@ -26,11 +25,6 @@ const baseConfig = {
   input: 'src/index.ts',
   plugins: [
     json(),
-    resolve({
-      browser: true,
-      preferBuiltins: false,
-      exportConditions: ['browser', 'module', 'import'],
-    }),
     commonjs({
       include: /node_modules/,
       transformMixedEsModules: true,
