@@ -5,6 +5,7 @@ import { createNexusClient } from '../../src';
 import { version } from '../../package.json';
 import { getIntentQuoteFailure } from '../../src/intent/errors';
 import { createMiddlewareClient } from '../../src/intent/middleware';
+import { testClientIdentity } from '../helpers/middleware-client';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 
@@ -52,7 +53,7 @@ describe('Better Intent middleware transport', () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
     http.get.mockResolvedValue({ data: { tokens: [], offset: 0, limit: 50, total: 0 } });
-    await createMiddlewareClient('https://mw.example').getIntentTokens({ includeUnverified });
+    await createMiddlewareClient('https://mw.example', testClientIdentity).getIntentTokens({ includeUnverified });
     expect(http.get.mock.calls[0][1].params.get('unverified'))
       .toBe(includeUnverified === undefined ? null : String(includeUnverified));
   });
@@ -60,7 +61,7 @@ describe('Better Intent middleware transport', () => {
   it('rejects a non-boolean includeUnverified flag before requesting tokens', async () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
-    await expect(createMiddlewareClient('https://mw.example').getIntentTokens({ includeUnverified: 'false' as never }))
+    await expect(createMiddlewareClient('https://mw.example', testClientIdentity).getIntentTokens({ includeUnverified: 'false' as never }))
       .rejects.toMatchObject({ code: 'validation/invalid_input' });
     expect(http.get).not.toHaveBeenCalled();
   });
@@ -75,7 +76,7 @@ describe('Better Intent middleware transport', () => {
       status: 200, statusText: 'OK', headers: {}, config,
     }));
     axiosRoot.create.mockImplementation((config: CreateAxiosDefaults) => realAxios.create({ ...config, adapter }));
-    const mw = createMiddlewareClient('https://middleware.example', { clientId: 'test' });
+    const mw = createMiddlewareClient('https://middleware.example', { ...testClientIdentity, clientId: 'test' });
     const request = { sender: ACCOUNT, tradeType: 'exactOutput' as const, output: { chainId: 'EVM_1', token: TOKEN, amount: '1' } };
     try {
       await Promise.all(['attempt-a', 'attempt-b'].map(async (id) => {
@@ -102,7 +103,12 @@ describe('Better Intent middleware transport', () => {
     } finally { mw.destroy(); }
   });
 
-  it('sends the public client identity on Better Intent requests', async () => {
+  it.each([
+    [undefined, undefined, 'nexus-sdk', version],
+    ['nexus-widget', undefined, 'nexus-widget', version],
+    [undefined, '1.2.3', 'nexus-sdk', '1.2.3'],
+    ['nexus-widget', '1.2.3', 'nexus-widget', '1.2.3'],
+  ])('sends surface %s / %s on client and utility requests', async (surfaceName, surfaceVersion, expectedName, expectedVersion) => {
     const { default: realAxios } = await vi.importActual<typeof import('axios')>('axios');
     const adapter = vi.fn<AxiosAdapter>(async (config) => ({
       data: [],
@@ -114,21 +120,28 @@ describe('Better Intent middleware transport', () => {
     axiosRoot.create.mockImplementation((config: CreateAxiosDefaults) =>
       realAxios.create({ ...config, adapter })
     );
-    const client = createNexusClient({ clientId: 'My.App', analytics: { enabled: false } });
+    const client = createNexusClient({
+      clientId: 'My.App', surfaceName, surfaceVersion, analytics: { enabled: false },
+    });
 
     try {
       await client.initialize();
+      await client.utils.getSupportedChains('mainnet');
 
       const requests = adapter.mock.calls
         .map(([config]) => config)
         .filter(({ url }) => url?.startsWith('/api/v1/intent/'));
-      expect(requests).toHaveLength(1);
-      expect(adapter.mock.calls.map(([config]) => config.url)).toEqual(['/api/v1/intent/chains']);
-      expect(requests[0]?.headers.toJSON()).toMatchObject({
-        'x-nexus-client-id': 'My.App',
-        'x-nexus-surface': 'nexus-sdk',
-        'x-nexus-surface-version': version,
-      });
+      expect(requests).toHaveLength(2);
+      expect(adapter.mock.calls.map(([config]) => config.url)).toEqual([
+        '/api/v1/intent/chains', '/api/v1/intent/chains',
+      ]);
+      for (const request of requests) {
+        expect(request.headers.toJSON()).toMatchObject({
+          'x-nexus-client-id': 'My.App',
+          'x-nexus-surface': expectedName,
+          'x-nexus-surface-version': expectedVersion,
+        });
+      }
     } finally {
       client.destroy();
     }
@@ -143,7 +156,7 @@ describe('Better Intent middleware transport', () => {
         nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
       }] })
       .mockResolvedValueOnce({ data: { tokens: [], offset: 0, limit: 1000, total: 0 } });
-    const chains = await createMiddlewareClient('https://mw.example').getIntentChains();
+    const chains = await createMiddlewareClient('https://mw.example', testClientIdentity).getIntentChains();
     expect(http.get).toHaveBeenCalledTimes(1);
     expect(chains[0]).not.toHaveProperty('tokens');
   });
@@ -199,7 +212,7 @@ describe('Better Intent middleware transport', () => {
         },
       });
 
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
 
     await expect(client.getIntentChains({ providers: ['mayan'] })).resolves.toEqual([
       expect.objectContaining({
@@ -250,7 +263,7 @@ describe('Better Intent middleware transport', () => {
       sponsoredApproval: false,
     };
     http.get.mockResolvedValueOnce({ data: { tokens: [token], offset: 10, limit: 1, total: 100 } });
-    const page = await createMiddlewareClient('https://mw.example').getIntentTokens({
+    const page = await createMiddlewareClient('https://mw.example', testClientIdentity).getIntentTokens({
       chainId: 1, providers: ['relay', 'mayan'], symbol: 'USDC', name: 'USD',
       contract: TOKEN, offset: 10, limit: 1,
     });
@@ -268,7 +281,7 @@ describe('Better Intent middleware transport', () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
     http.get.mockResolvedValueOnce({ data: { tokens: [], offset: 0, limit: 50, total: 1 } });
-    await expect(createMiddlewareClient('https://mw.example').getIntentTokens())
+    await expect(createMiddlewareClient('https://mw.example', testClientIdentity).getIntentTokens())
       .rejects.toThrow(/token.*pag/i);
   });
 
@@ -276,7 +289,7 @@ describe('Better Intent middleware transport', () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
     http.get.mockResolvedValueOnce({ data: { tokens: [], offset: 50, limit: 50, total: 1 } });
-    await expect(createMiddlewareClient('https://mw.example').getIntentTokens({ offset: 50 }))
+    await expect(createMiddlewareClient('https://mw.example', testClientIdentity).getIntentTokens({ offset: 50 }))
       .resolves.toEqual({ tokens: [], offset: 50, limit: 50, total: 1 });
   });
 
@@ -287,7 +300,7 @@ describe('Better Intent middleware transport', () => {
       .mockResolvedValueOnce({ data: quoteResponse() })
       .mockResolvedValueOnce({ data: { quoteId: QUOTE_ID, status: 'created' } });
 
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
     const request = {
       sender: ACCOUNT,
       tradeType: 'exactOutput' as const,
@@ -340,7 +353,7 @@ describe('Better Intent middleware transport', () => {
         },
       },
     });
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
 
     let failure = null;
     try {
@@ -391,7 +404,7 @@ describe('Better Intent middleware transport', () => {
         },
       },
     });
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
 
     let failure = null;
     try {
@@ -416,7 +429,7 @@ describe('Better Intent middleware transport', () => {
     const http = makeAxios();
     axiosRoot.create.mockReturnValue(http);
     http.get.mockResolvedValue({ data: [] });
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
 
     await client.getIntentChains({
       providers: ['nexus-v2', 'mayan'],
@@ -464,7 +477,7 @@ describe('Better Intent middleware transport', () => {
           },
     }));
 
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
 
     await expect(client.getIntentStatus(QUOTE_ID)).resolves.toEqual({
       id: QUOTE_ID,
@@ -504,7 +517,7 @@ describe('Better Intent middleware transport', () => {
       },
     }));
 
-    const client = createMiddlewareClient('https://mw.example');
+    const client = createMiddlewareClient('https://mw.example', testClientIdentity);
     const result = await client.listIntentHistory({
       user: ACCOUNT,
       status: 'fulfilled',

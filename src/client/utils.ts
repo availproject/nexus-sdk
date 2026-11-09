@@ -3,7 +3,6 @@ import {
   isAddress as viemIsAddress,
   parseUnits as viemParseUnits,
 } from 'viem';
-import { version } from '../../package.json' with { type: 'json' };
 import {
   formatTokenBalance as domainFormatTokenBalance,
   formatTokenBalanceParts as domainFormatTokenBalanceParts,
@@ -16,6 +15,7 @@ import { getSupportedChainsFromCatalog, type SupportedChainsResult } from '../se
 import { reportOperationError } from '../services/error-telemetry';
 import { getNetworkConfig } from '../services/network-config';
 import { getCoinbasePrices } from '../services/pricing';
+import { resolveSurfaceIdentity, type SurfaceIdentity } from '../services/surface-identity';
 import { setLoggerProvider } from '../services/telemetry';
 
 // Stateless utility exports
@@ -45,15 +45,19 @@ export const getCoinbaseRates = async (): Promise<Record<string, string>> => {
 
 export const getSupportedChains = async (
   env: NexusNetworkHint,
-  options?: { clientId: string }
+  options?: Partial<SurfaceIdentity> & { clientId: string }
 ): Promise<SupportedChainsResult> => {
+  const surface = resolveSurfaceIdentity(options);
   try {
     if (typeof options?.clientId !== 'string' || !options.clientId.trim()) {
       throw Errors.invalidInput('getSupportedChains requires a non-empty clientId');
     }
     const networkConfig = getNetworkConfig(env);
     await setLoggerProvider(networkConfig);
-    const middlewareClient = createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, options);
+    const middlewareClient = createMiddlewareClient(networkConfig.MIDDLEWARE_HTTP_URL, {
+      ...options,
+      ...surface,
+    });
     try {
       return getSupportedChainsFromCatalog(await middlewareClient.getIntentChains());
     } finally {
@@ -66,8 +70,8 @@ export const getSupportedChains = async (
       params: { env },
       attributes: {
         'nexus.client.id': options?.clientId,
-        'surface.name': 'nexus-sdk',
-        'surface.version': version,
+        'surface.name': surface.surfaceName,
+        'surface.version': surface.surfaceVersion,
         'nexus.network': env,
       },
       error,
@@ -87,7 +91,7 @@ export type NexusUtils = {
   getSupportedChains: (env: NexusNetworkHint) => Promise<SupportedChainsResult>;
 };
 
-export const createNexusUtils = (clientId: string): NexusUtils => ({
+export const createNexusUtils = (identity: SurfaceIdentity & { clientId: string }): NexusUtils => ({
   formatTokenBalance,
   formatTokenBalanceParts,
   parseUnits,
@@ -96,5 +100,5 @@ export const createNexusUtils = (clientId: string): NexusUtils => ({
   truncateAddress,
   getCoinbaseRates,
   getSupportedChains: (env: NexusNetworkHint): Promise<SupportedChainsResult> =>
-    getSupportedChains(env, { clientId }),
+    getSupportedChains(env, identity),
 });

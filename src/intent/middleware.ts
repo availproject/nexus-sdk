@@ -1,6 +1,5 @@
 import axios from 'axios';
 import type { Hex } from 'viem';
-import { version } from '../../package.json' with { type: 'json' };
 import { installAxiosNetworkTiming } from '../analytics/network-timing';
 import type { TimingSpanHooks } from '../domain';
 import {
@@ -11,6 +10,7 @@ import {
   formatUnknownError,
   NexusError,
 } from '../domain/errors';
+import type { SurfaceIdentity } from '../services/surface-identity';
 import {
   normalizeIntentBalances,
   normalizeIntentChains,
@@ -436,7 +436,11 @@ const intentChainParams = (constraints?: IntentRouteConstraints): URLSearchParam
 
 export const createMiddlewareClient = (
   middlewareURL: string,
-  options?: { clientId?: string; timing?: TimingSpanHooks; captureNetworkTiming?: boolean }
+  options: SurfaceIdentity & {
+    clientId: string;
+    timing?: TimingSpanHooks;
+    captureNetworkTiming?: boolean;
+  }
 ): MiddlewareClient => {
   try {
     const url = new URL(middlewareURL);
@@ -451,9 +455,9 @@ export const createMiddlewareClient = (
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      'x-nexus-client-id': options?.clientId,
-      'x-nexus-surface': 'nexus-sdk',
-      'x-nexus-surface-version': version,
+      'x-nexus-client-id': options.clientId,
+      'x-nexus-surface': options.surfaceName,
+      'x-nexus-surface-version': options.surfaceVersion,
     },
   });
   // biome-ignore lint/suspicious/noEmptyBlockStatements: default no-op cleanup

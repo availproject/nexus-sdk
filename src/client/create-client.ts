@@ -17,6 +17,7 @@ import type {
 } from '../intent/swap-types';
 import { createChainList } from '../services/chain-list';
 import { getNetwork, readEnv } from '../services/network-config';
+import { resolveSurfaceIdentity, type SurfaceIdentity } from '../services/surface-identity';
 import { setLoggerProvider } from '../services/telemetry';
 import { createBase } from './base';
 import {
@@ -33,29 +34,34 @@ import { createNexusUtils } from './utils';
 
 const logger = getLogger();
 
-export const createNexusClient = (config: {
-  clientId: string;
-  network?: NexusNetwork;
-  debug?: boolean;
-  analytics?: AnalyticsConfig;
-  devTiming?: DevTimingConfig;
-  internal?: { middlewareClient?: MiddlewareClient };
-}): NexusClient => {
+export const createNexusClient = (
+  config: Partial<SurfaceIdentity> & {
+    clientId: string;
+    network?: NexusNetwork;
+    debug?: boolean;
+    analytics?: AnalyticsConfig;
+    devTiming?: DevTimingConfig;
+    internal?: { middlewareClient?: MiddlewareClient };
+  }
+): NexusClient => {
   if (typeof config?.clientId !== 'string' || !config.clientId.trim()) {
     throw Errors.invalidInput('clientId must be a non-empty string');
   }
 
+  const surface = resolveSurfaceIdentity(config);
   const resolvedDevTiming: DevTimingConfig | undefined =
     config?.devTiming?.enabled === undefined && readEnv('NEXUS_DEV_TIMING') === 'true'
       ? { ...config?.devTiming, enabled: true }
       : config?.devTiming;
-  const base = createBase({ ...config, devTiming: resolvedDevTiming });
+  const base = createBase({ ...config, ...surface, devTiming: resolvedDevTiming });
   const analytics = new AnalyticsManager(
     getNetwork(config?.network || 'mainnet'),
     config?.analytics,
     resolvedDevTiming,
     base.peekChainList,
-    config.clientId
+    config.clientId,
+    surface.surfaceName,
+    surface.surfaceVersion
   );
   base.setAnalytics(analytics);
   logger.debug('Nexus SDK initialized with config:', config);
@@ -74,7 +80,7 @@ export const createNexusClient = (config: {
     trackBalanceFetch(analytics, () => base.getBalancesForSwap()).then((result) => result.balances);
 
   const client: NexusClient = {
-    utils: createNexusUtils(config.clientId),
+    utils: createNexusUtils({ clientId: config.clientId, ...surface }),
     analytics,
     initialize,
     isSupportedChain: (chainId) => base.getSupportedChains().some((chain) => chain.id === chainId),

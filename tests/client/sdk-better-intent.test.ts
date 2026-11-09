@@ -8,7 +8,7 @@ import { normalizeIntentQuote } from '../../src/intent/normalize';
 import type { IntentChain, IntentEvent } from '../../src/intent/types';
 import * as evm from '../../src/services/evm';
 import { makeChain, makeChainList } from '../helpers/chains';
-import { makeMiddlewareClient } from '../helpers/middleware-client';
+import { makeMiddlewareClient, testClientIdentity } from '../helpers/middleware-client';
 import { testChains } from '../fixtures/chains';
 import { NexusAnalyticsEvents as Events } from '../../src/analytics/events';
 
@@ -159,7 +159,7 @@ describe('Better Intent approval confirmations', () => {
     });
     const submitIntent = vi.fn(async () => ({ quoteId: QUOTE_ID, status: 'created' as const }));
     const base = createBase({
-      clientId: 'test-client', network: 'mainnet',
+      ...testClientIdentity, network: 'mainnet',
       internal: { middlewareClient: makeMiddlewareClient({ getIntentTokens: makeTokenFetcher(intentChains),
         getIntentQuote: async () => quoted, submitIntent,
         getIntentStatus: async () => ({

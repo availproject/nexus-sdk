@@ -25,6 +25,18 @@ await client.setEVMProvider(provider);
 quote previews need initialization but no wallet. Execution and wallet balances need a connected
 provider. Recreate the client after account/provider changes and call `client.destroy()` on cleanup.
 
+Optional `surfaceName` and `surfaceVersion` identify your integration in middleware headers and
+telemetry, including `client.utils.getSupportedChains`. Each defaults independently to `nexus-sdk`
+and the SDK package version when omitted. For example:
+
+```ts
+const widget = createNexusClient({
+  clientId: 'your-app-name',
+  surfaceName: 'nexus-widget',
+  surfaceVersion: '1.2.3',
+});
+```
+
 `mainnet` and `canary` use mainnet chains. `testnet` supports standalone execution only; intent
 operations and async intent catalog helpers reject with `ENVIRONMENT_NOT_SUPPORTED`.
 

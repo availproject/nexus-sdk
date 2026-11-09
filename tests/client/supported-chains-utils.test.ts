@@ -35,7 +35,7 @@ describe('supported-chain utilities', () => {
       expectTypeOf(chain.asSource).toEqualTypeOf<IntentProvider[]>();
       expect(getIntentChains).toHaveBeenCalledExactlyOnceWith();
       expect(transport.createMiddlewareClient).toHaveBeenLastCalledWith(
-        expect.any(String), { clientId: 'test-client' }
+        expect.any(String), expect.objectContaining({ clientId: 'test-client' })
       );
     } finally {
       client.destroy();

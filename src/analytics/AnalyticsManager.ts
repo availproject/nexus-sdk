@@ -71,6 +71,7 @@ import { type OperationName, toError } from '../domain/errors';
 import { getLogger } from '../domain/logger';
 import { getErrorReportingProperties } from '../services/error-reporting';
 import { reportOperationError } from '../services/error-telemetry';
+import { resolveSurfaceIdentity, type SurfaceIdentity } from '../services/surface-identity';
 import { reportTelemetryEvent } from '../services/telemetry';
 import type { NexusOperationName } from './events';
 import { type NexusAnalyticsEvent, NexusAnalyticsEvents } from './events';
@@ -157,15 +158,19 @@ export class AnalyticsManager {
   private network?: AnalyticsNetwork;
   private chainListGetter?: () => ChainListType | null | undefined;
   private clientId?: string;
+  private surface: SurfaceIdentity;
 
   constructor(
     network: AnalyticsNetwork,
     config?: AnalyticsConfig,
     devTiming?: DevTimingConfig,
     chainListGetter?: () => ChainListType | null | undefined,
-    clientId?: string
+    clientId?: string,
+    surfaceName?: string,
+    surfaceVersion?: string
   ) {
     this.clientId = clientId;
+    this.surface = resolveSurfaceIdentity({ surfaceName, surfaceVersion });
     this.chainListGetter = chainListGetter;
     this.config = config || { enabled: true };
     this.devTiming = this.resolveDevTimingConfig(devTiming);
@@ -717,8 +722,8 @@ export class AnalyticsManager {
   getTelemetryIdentity(): Record<string, string> {
     return {
       ...(this.clientId ? { 'nexus.client.id': this.clientId } : {}),
-      'surface.name': 'nexus-sdk',
-      'surface.version': this.sdkVersion,
+      'surface.name': this.surface.surfaceName,
+      'surface.version': this.surface.surfaceVersion,
       'session.id': this.session.getSessionId(),
       'nexus.network': this.network ?? 'mainnet',
     };

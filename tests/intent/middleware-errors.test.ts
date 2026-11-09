@@ -6,6 +6,7 @@ import { getIntentQuoteFailure } from '../../src/intent/errors';
 import type { IntentQuoteRequest } from '../../src/intent/types';
 import { createMiddlewareClient } from '../../src/intent/middleware';
 import { sponsoredQuoteResponse } from '../fixtures/better-intent';
+import { testClientIdentity } from '../helpers/middleware-client';
 
 vi.mock('axios', () => ({ default: { create: vi.fn() } }));
 
@@ -23,7 +24,7 @@ const responseError = (data: unknown, status = 422) =>
 
 const quoteError = async (error: unknown): Promise<BackendError> => {
   http.post.mockRejectedValue(error);
-  const client = createMiddlewareClient('https://middleware.example');
+  const client = createMiddlewareClient('https://middleware.example', testClientIdentity);
   const result = await client.getIntentQuote(quoteRequest).catch((error: unknown) => error);
   expect(result).toBeInstanceOf(BackendError);
   return result as BackendError;
@@ -198,7 +199,7 @@ describe('middleware error mapping', () => {
     http.post.mockRejectedValue(responseError({
       code: 'INVALID_REQUEST', subcode: 'REQUEST_EXPIRED', message: 'Intent submit request is already expired',
     }));
-    await expect(createMiddlewareClient('https://middleware.example').submitIntent({
+    await expect(createMiddlewareClient('https://middleware.example', testClientIdentity).submitIntent({
       provider: 'nexus-v2', rff: {}, signatures: [],
       fees: sponsoredQuoteResponse().fees,
       quoteSignature: sponsoredQuoteResponse().quoteSignature,
@@ -208,7 +209,7 @@ describe('middleware error mapping', () => {
   it.each(['balances', 'chains', 'status', 'history'] as const)(
     'maps %s errors through the shared boundary', async (operation) => {
       http.get.mockRejectedValue(responseError({ code: 'RATE_LIMITED', message: 'Rate exceeded' }, 429));
-      const client = createMiddlewareClient('https://middleware.example');
+      const client = createMiddlewareClient('https://middleware.example', testClientIdentity);
       const request = operation === 'balances' ? client.getIntentBalances(ACCOUNT)
         : operation === 'chains' ? client.getIntentChains()
         : operation === 'status' ? client.getIntentStatus(`0x${'11'.repeat(32)}`)
@@ -225,7 +226,7 @@ describe('middleware error mapping', () => {
   });
 
   it('preserves validation errors raised before sending a request', async () => {
-    const client = createMiddlewareClient('https://middleware.example');
+    const client = createMiddlewareClient('https://middleware.example', testClientIdentity);
     await expect(client.getIntentChains({ sources: [{ chainId: -1 }] }))
       .rejects.toBeInstanceOf(ValidationError);
     expect(http.get).not.toHaveBeenCalled();
